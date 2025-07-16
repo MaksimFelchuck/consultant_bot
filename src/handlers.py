@@ -25,6 +25,7 @@ router = Router()
 class OrderStates(StatesGroup):
     waiting_for_choice = State()
     waiting_for_contact = State()
+    product_card = State()  # Новое состояние для карточки товара
 
 BRAND_GROUPS = {
     "китайские": ["Xiaomi", "Realme", "Honor", "Huawei", "OnePlus", "Lenovo", "Meizu", "ZTE", "Vivo", "Oppo", "TCL", "Hisense"],
@@ -463,13 +464,100 @@ async def handle_product_choice(message: Message, state: FSMContext):
             await message.answer_photo(photo, caption=caption + "\n\nХотите оформить заказ на этот товар? Напишите 'оформить заказ' или свяжитесь с менеджером.")
         else:
             await message.answer(f"{chosen['name']}\nФото не найдено.\n{chosen['desc']}")
-        # Обновляем current_product только если last_products_id изменился
-        if last_products_id and last_products_id != current_products_id:
-            extra["current_product"] = chosen
-            extra["current_product_list_id"] = last_products_id
-            user.extra_data = to_plain_dict(extra)  # type: ignore
-            session.commit()
+        # Сохраняем выбранный товар и переходим в состояние карточки товара
+        extra["current_product"] = chosen
+        extra["current_product_list_id"] = last_products_id
+        user.extra_data = to_plain_dict(extra)  # type: ignore
+        session.commit()
+        await state.set_state(OrderStates.product_card)
     else:
         await message.answer("Не удалось определить, какой товар вы выбрали. Пожалуйста, введите номер или точное название товара из последней выдачи.")
     session.close()
-    await state.clear() 
+
+@router.message(StateFilter(OrderStates.product_card), F.text)
+async def handle_product_card(message: Message, state: FSMContext):
+    """Обработчик для состояния карточки товара - отвечает на вопросы о выбранном товаре"""
+    user_message = message.text or ""
+    session = SessionLocal()
+    tg_user = message.from_user
+    if tg_user is None:
+        await message.answer("Ошибка: не удалось определить пользователя Telegram.")
+        return
+    user = get_or_create_user(
+        session,
+        telegram_id=str(tg_user.id),
+        username=tg_user.username,
+        first_name=tg_user.first_name,
+        last_name=tg_user.last_name
+    )
+    session.refresh(user)
+    extra = user.extra_data if isinstance(user.extra_data, dict) else {}
+    if not isinstance(extra, dict):
+        extra = {}
+    current_product = extra.get("current_product")
+    
+    if not current_product:
+        await message.answer("Извините, не удалось найти информацию о выбранном товаре. Попробуйте выбрать товар заново.")
+        await state.clear()
+        session.close()
+        return
+    
+    # Обработка различных запросов в карточке товара
+    user_message_lower = user_message.lower()
+    
+    # Запрос фото
+    if any(word in user_message_lower for word in ["фото", "картинка", "photo", "picture", "покажи фото", "можно посмотреть фото"]):
+        if current_product["image_url"].startswith("images/"):
+            from aiogram.types import FSInputFile
+            from pathlib import Path
+            file_path = Path.cwd() / current_product["image_url"]
+            if file_path.exists():
+                photo = FSInputFile(str(file_path))
+                await message.answer_photo(photo, caption=current_product["name"])
+            else:
+                await message.answer(f"Фото товара {current_product['name']} временно недоступно.")
+        else:
+            await message.answer_photo(current_product["image_url"], caption=current_product["name"])
+    
+    # Запрос характеристик
+    elif any(word in user_message_lower for word in ["характеристики", "характеристика", "описание", "подробности", "детали", "specs", "specifications"]):
+        await message.answer(f"📋 Характеристики {current_product['name']}:\n\n{current_product['desc']}\n\n💰 Цена: {current_product['price']}₽")
+    
+    # Запрос цены
+    elif any(word in user_message_lower for word in ["цена", "стоимость", "price", "cost", "сколько стоит"]):
+        await message.answer(f"💰 Цена {current_product['name']}: {current_product['price']}₽")
+    
+    # Оформление заказа
+    elif any(word in user_message_lower for word in ["заказ", "купить", "приобрести", "оформить", "order", "buy", "purchase"]):
+        await message.answer(
+            f"🛒 Оформление заказа на {current_product['name']}\n\n"
+            f"Для оформления заказа свяжитесь с нашим менеджером:\n"
+            f"📞 Телефон: +7 (800) 555-0123\n"
+            f"📧 Email: order@technomarket.ru\n"
+            f"💬 Telegram: @technomarket_support\n\n"
+            f"Или оставьте свой номер телефона, и мы перезвоним вам в течение 15 минут."
+        )
+        await state.set_state(OrderStates.waiting_for_contact)
+    
+    # Возврат к списку товаров
+    elif any(word in user_message_lower for word in ["назад", "список", "другие", "еще", "back", "list", "other", "more"]):
+        await message.answer("Возвращаюсь к списку товаров. Выберите другой товар или уточните параметры поиска.")
+        await state.clear()
+    
+    # Общие вопросы о товаре
+    else:
+        # Используем LLM для ответов на вопросы о конкретном товаре
+        context = f"""Ты — консультант магазина "ТехноМаркет". Пользователь задает вопрос о товаре:
+
+Товар: {current_product['name']}
+Описание: {current_product['desc']}
+Цена: {current_product['price']}₽
+
+Вопрос пользователя: {user_message}
+
+Отвечай кратко и по делу. Если пользователь спрашивает о характеристиках, которые не указаны в описании, вежливо сообщи, что эта информация временно недоступна и предложи связаться с менеджером для уточнения деталей."""
+        
+        reply = await get_gpt_response(user_message, context)
+        await message.answer(reply)
+    
+    session.close() 
