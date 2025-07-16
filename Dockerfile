@@ -3,8 +3,8 @@ FROM python:3.12-slim
 WORKDIR /app
 
 COPY requirements.txt ./
-RUN pip install --upgrade pip && pip install -r requirements.txt && pip install watchfiles
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Остальной код будет монтироваться через volume
+COPY . .
 
-CMD ["watchfiles", "python src/bot.py"] 
+CMD ["python", "src/bot.py"] 
