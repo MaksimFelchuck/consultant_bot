@@ -211,55 +211,106 @@ async def handle_message(message: Message, state: FSMContext):
                 extra["last_category"] = category_obj.name
                 user.extra_data = to_plain_dict(extra)  # type: ignore
                 session.commit()
+        # --- Умное ослабление фильтров ---
+        def smart_product_search(query, filters, session, category_obj):
+            # 1. Все фильтры
+            q = query
+            if filters['color']:
+                q = q.filter(or_(*filters['color']))
+            if filters['brand']:
+                q = q.filter(or_(*filters['brand']))
+            if filters['spec']:
+                q = q.filter(*filters['spec'])
+            if filters['price']:
+                q = q.filter(*filters['price'])
+            products = q.order_by(func.random()).limit(3).all()
+            if products:
+                return products, []
+            # 2. Без цвета
+            q = query
+            if filters['brand']:
+                q = q.filter(or_(*filters['brand']))
+            if filters['spec']:
+                q = q.filter(*filters['spec'])
+            if filters['price']:
+                q = q.filter(*filters['price'])
+            products = q.order_by(func.random()).limit(3).all()
+            if products:
+                return products, ['цвет']
+            # 3. Без цвета и бренда
+            q = query
+            if filters['spec']:
+                q = q.filter(*filters['spec'])
+            if filters['price']:
+                q = q.filter(*filters['price'])
+            products = q.order_by(func.random()).limit(3).all()
+            if products:
+                return products, ['цвет', 'бренд']
+            # 4. Без цвета, бренда и характеристик
+            q = query
+            if filters['price']:
+                q = q.filter(*filters['price'])
+            products = q.order_by(func.random()).limit(3).all()
+            if products:
+                return products, ['цвет', 'бренд', 'характеристики']
+            # 5. Только по категории и цене
+            if filters['price']:
+                q = session.query(Product).filter(Product.category_id == category_obj.id).filter(*filters['price'])
+            else:
+                q = session.query(Product).filter(Product.category_id == category_obj.id)
+            products = q.order_by(func.random()).limit(3).all()
+            if products:
+                return products, ['цвет', 'бренд', 'характеристики', 'категория']
+            # 6. Любые 3 из категории
+            products = session.query(Product).filter(Product.category_id == category_obj.id).order_by(func.random()).limit(3).all()
+            return products, ['все фильтры']
+
+        # --- Сбор фильтров ---
+        filters = {'color': [], 'brand': [], 'spec': [], 'price': []}
+        if "цвет" in params and not any(w in params["цвет"] for w in IGNORE_WORDS):
+            colors = [c.strip() for c in re.split(r"[,/]| или | or ", params["цвет"]) if c.strip()]
+            if colors:
+                filters['color'] = [or_(Product.name.ilike(f"%{color}%"), Product.description.ilike(f"%{color}%")) for color in colors]
         if "бренд" in params and not any(w in params["бренд"] for w in IGNORE_WORDS):
             brands = []
-            # Проверяем группы брендов
             for group, group_brands in BRAND_GROUPS.items():
                 if group in params["бренд"]:
                     brands.extend(group_brands)
-            # Если явно указаны бренды через 'или', ',', '/'
             for b in re.split(r"[,/]| или | or ", params["бренд"]):
                 b = b.strip()
                 if b and b not in brands:
                     brands.append(b.capitalize())
-            logging.info(f"[ТехноМаркет] Параметры поиска: {params}, бренды: {brands}")
             if brands:
-                brand_filters = [Product.name.ilike(f"%{b}%") for b in brands]
-                query = query.filter(or_(*brand_filters))
-        if "цена" in params and not any(w in params["цена"] for w in IGNORE_WORDS):
-            try:
-                price = int(re.sub(r"\D", "", params["цена"]))
-                query = query.filter(Product.price <= price)
-            except Exception:
-                pass
-        # Обработка размера (маленький, средний, большой)
+                filters['brand'] = [Product.name.ilike(f"%{b}%") for b in brands]
         if "характеристики" in params and not any(w in params["характеристики"] for w in IGNORE_WORDS):
             size_words = ["маленький", "средний", "большой"]
             for size_word in size_words:
                 if size_word in params["характеристики"]:
-                    # Определяем категорию для размера
                     cat_name = params.get("категория", "")
                     for key, ranges in SIZE_RANGES.items():
                         if key in cat_name.lower():
                             for sz in ranges[size_word]:
-                                query = query.filter(Product.name.ilike(f"%{sz}%"))
+                                filters['spec'].append(Product.name.ilike(f"%{sz}%"))
                     break
             else:
-                # Если нет слова "маленький/средний/большой", фильтруем по описанию
-                query = query.filter(Product.description.ilike(f"%{params['характеристики']}%"))
-        if "цвет" in params and not any(w in params["цвет"] for w in IGNORE_WORDS):
-            # Разбиваем по 'или', ',', '/'
-            colors = [c.strip() for c in re.split(r"[,/]| или | or ", params["цвет"]) if c.strip()]
-            if colors:
-                color_filters = [or_(Product.name.ilike(f"%{color}%"), Product.description.ilike(f"%{color}%")) for color in colors]
-                query = query.filter(or_(*color_filters))
-        products = query.order_by(func.random()).limit(3).all()
-        # Fallback: если не найдено, но есть категория — показать случайные товары из категории
-        if not products and category_obj:
-            # Не предлагаем альтернативы без пояснения — только если LLM явно объяснила, что это альтернатива
-            pass
+                filters['spec'].append(Product.description.ilike(f"%{params['характеристики']}%"))
+        if "цена" in params and not any(w in params["цена"] for w in IGNORE_WORDS):
+            try:
+                price = int(re.sub(r"\D", "", params["цена"]))
+                filters['price'] = [Product.price <= price]
+            except Exception:
+                pass
+        # --- Поиск товаров с поэтапным ослаблением фильтров ---
+        products, dropped = smart_product_search(query, filters, session, category_obj)
+        main_text = reply.split("Параметры поиска:")[0].strip()
+        if dropped:
+            msg = "По вашему запросу ничего не найдено, но вот несколько товаров из этой категории, которые могут вам подойти:"
+            if dropped != ['все фильтры']:
+                msg += " (ослаблены фильтры: " + ", ".join(dropped) + ")"
+            await message.answer(msg)
+            main_text = ""
         if products:
-            text_lines = [reply.split("Параметры поиска:")[0].strip()]
+            text_lines = [main_text] if main_text else []
             for idx, prod in enumerate(products, 1):
                 text_lines.append(f"{idx}. {prod.name} — {prod.price}₽\n{prod.description}")
             text_lines.append("\nЕсли хотите посмотреть фото товара — напишите 'фото' и номер или название товара.")
@@ -268,7 +319,6 @@ async def handle_message(message: Message, state: FSMContext):
             extra = user.extra_data if isinstance(user.extra_data, dict) else {}
             if not isinstance(extra, dict):
                 extra = {}
-            # Готовим last_products только из простых типов
             last_products = []
             for p in products:
                 price_val = getattr(p, 'price', 0)
@@ -286,8 +336,7 @@ async def handle_message(message: Message, state: FSMContext):
             user.extra_data = to_plain_dict(extra)  # type: ignore
             session.commit()
             await state.set_state(OrderStates.waiting_for_choice)
-        else:
-            await message.answer(reply.split("Параметры поиска:")[0].strip() + "\n\nНе удалось найти подходящие товары по вашему запросу.")
+        # else убираем — не отправляем ничего, если альтернативы уже были предложены
     else:
         await message.answer(reply)
     session.close()
