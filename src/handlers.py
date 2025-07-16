@@ -142,8 +142,7 @@ async def cmd_resetcontext(message: Message):
 async def handle_message(message: Message, state: FSMContext):
     # Проверяем текущее состояние FSM
     current_state = await state.get_state()
-    # Если пользователь уже в процессе выбора товара или карточки — не делаем подбор заново
-    if current_state in [OrderStates.waiting_for_choice.state, OrderStates.product_card.state]:
+    if current_state:
         return  # Пусть обработку делает соответствующий handler
     user_message = message.text or ""
     session = SessionLocal()
