@@ -40,7 +40,6 @@ def get_or_create_user(session: Session, telegram_id: str, **kwargs):
         user = User(telegram_id=telegram_id, **kwargs)
         session.add(user)
         session.commit()
-        session.refresh(user)  # Ensure user.id is loaded
     return user
 
 # Сохранить сообщение
