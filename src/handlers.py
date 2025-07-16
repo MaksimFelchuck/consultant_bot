@@ -140,6 +140,11 @@ async def cmd_resetcontext(message: Message):
 
 @router.message(F.text)
 async def handle_message(message: Message, state: FSMContext):
+    # Проверяем текущее состояние FSM
+    current_state = await state.get_state()
+    # Если пользователь уже в процессе выбора товара или карточки — не делаем подбор заново
+    if current_state in [OrderStates.waiting_for_choice.state, OrderStates.product_card.state]:
+        return  # Пусть обработку делает соответствующий handler
     user_message = message.text or ""
     session = SessionLocal()
     tg_user = message.from_user
@@ -156,7 +161,6 @@ async def handle_message(message: Message, state: FSMContext):
     session.refresh(user)
     user_id = user.id if isinstance(user.id, int) else user.id.value
     save_message(session, user_id, "user", user_message)
-
     # Получаем историю для LLM
     history_limit = 5
     history = get_user_history(session, user_id, limit=history_limit)
@@ -171,7 +175,6 @@ async def handle_message(message: Message, state: FSMContext):
     context = f"{context_manager.get_context()}\n\nИстория общения:\n{history_text}"
     reply = await get_gpt_response(user_message, context)
     save_message(session, user_id, "assistant", reply)
-
     # Парсим параметры поиска из ответа LLM
     search_params = None
     for line in reply.splitlines():
@@ -192,8 +195,7 @@ async def handle_message(message: Message, state: FSMContext):
     extra["search_params"] = params
     user.extra_data = to_plain_dict(extra)  # type: ignore
     session.commit()
-
-    # Проверка наличия хотя бы одной характеристики
+    # Проверка наличия хотя бы одной характеристики (только если это первое сообщение)
     KEY_PARAMS = ["цена", "бюджет", "бренд", "цвет", "характеристики", "размер", "модель", "объём", "оперативная память", "экран", "тип"]
     has_characteristics = any(
         k in params and params[k] and params[k] not in IGNORE_WORDS
@@ -366,8 +368,9 @@ async def handle_message(message: Message, state: FSMContext):
     session.close()
 
 # Обработка запроса фото товара
-@router.message(F.text.regexp(r"(?i)фото|картинка|photo|picture"))
-async def handle_photo_request(message: Message, state: FSMContext):
+@router.message(F.text.regexp(r"(?i)фото|картинка|photo|picture|покажи|show"))
+async def handle_any_photo_request(message: Message, state: FSMContext):
+    """Обрабатывает запрос фото в любом состоянии: всегда отправляет реальное фото по image_url"""
     user_message = message.text or ""
     session = SessionLocal()
     tg_user = message.from_user
@@ -385,39 +388,17 @@ async def handle_photo_request(message: Message, state: FSMContext):
     extra = user.extra_data if isinstance(user.extra_data, dict) else {}
     if not isinstance(extra, dict):
         extra = {}
-    last_products = extra.get("last_products", [])
-    choice = user_message.lower()
-    chosen = None
-    # По номеру
-    for idx, prod in enumerate(last_products, 1):
-        if str(idx) in choice:
-            chosen = prod
-            break
-    # По названию
+    # Сначала ищем current_product (выбранный товар)
+    chosen = extra.get("current_product")
+    # Если нет — берём первый из last_products
     if not chosen:
-        for prod in last_products:
-            if prod["name"].lower() in choice:
-                chosen = prod
-                break
-    # Если не найдено, но есть current_product в extra_data
-    if not chosen:
-        current_product = extra.get("current_product")
-        if current_product:
-            chosen = current_product
-    if chosen:
-        if chosen["image_url"].startswith("images/"):
-            from aiogram.types import FSInputFile
-            from pathlib import Path
-            file_path = Path.cwd() / chosen["image_url"]
-            if file_path.exists():
-                photo = FSInputFile(str(file_path))
-                await message.answer_photo(photo, caption=chosen["name"])
-            else:
-                await message.answer(f"Файл не найден: {file_path}")
-        else:
-            await message.answer_photo(chosen["image_url"], caption=chosen["name"])
+        last_products = extra.get("last_products", [])
+        if last_products:
+            chosen = last_products[0]
+    if chosen and "image_url" in chosen:
+        await message.answer_photo(chosen["image_url"], caption=chosen.get("name", "Фото товара"))
     else:
-        await message.answer("Не удалось определить, для какого товара показать фото. Пожалуйста, укажите номер или точное название товара из последней выдачи.")
+        await message.answer("Не удалось определить, для какого товара показать фото. Пожалуйста, выберите товар из последней выдачи.")
     session.close()
 
 @router.message(StateFilter(OrderStates.waiting_for_choice), F.text)
@@ -507,7 +488,7 @@ async def handle_product_card(message: Message, state: FSMContext):
     user_message_lower = user_message.lower()
     
     # Запрос фото
-    if any(word in user_message_lower for word in ["фото", "картинка", "photo", "picture", "покажи фото", "можно посмотреть фото"]):
+    if any(word in user_message_lower for word in ["фото", "картинка", "photo", "picture", "покажи", "show"]):
         if current_product["image_url"].startswith("images/"):
             from aiogram.types import FSInputFile
             from pathlib import Path
