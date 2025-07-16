@@ -355,10 +355,11 @@ async def handle_message(message: Message, state: FSMContext):
             await state.set_state(OrderStates.waiting_for_choice)
         # else убираем — не отправляем ничего, если альтернативы уже были предложены
     else:
-        # Удаляем все строки 'Параметры поиска: ...' из ответа LLM перед отправкой пользователю
+        # Удаляем все технические строки из ответа LLM перед отправкой пользователю
         cleaned_reply = "\n".join(
             line for line in reply.splitlines()
-            if not line.strip().lower().startswith("параметры поиска:")
+            if not (line.strip().lower().startswith("параметры поиска:") or 
+                   line.strip().lower().startswith("извлечённые параметры:"))
         ).strip()
         if cleaned_reply:
             await message.answer(cleaned_reply)
