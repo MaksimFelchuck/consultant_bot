@@ -20,6 +20,20 @@ branch_labels = None
 depends_on = None
 
 def upgrade():
+    # Маппинг категорий: кириллица -> латиница
+    category_mapping = {
+        "Смартфоны": "Smartphones",
+        "Планшеты": "Tablets", 
+        "Ноутбуки": "Laptops",
+        "Телевизоры": "TVs",
+        "Наушники": "Headphones",
+        "Смарт-часы": "Smartwatches",
+        "Фотоаппараты": "Cameras",
+        "Игровые приставки": "Gaming_Consoles",
+        "Мониторы": "Monitors",
+        "Аксессуары": "Accessories",
+    }
+    
     categories = [
         ("Смартфоны", "smartphone"),
         ("Планшеты", "tablet"),
@@ -253,7 +267,9 @@ def upgrade():
         for i, (name, description, _) in enumerate(products_by_category[cat_name][:5], 1):
             price = random.randint(1000, 150000)
             image_num = ((i - 1) % 10) + 1
-            image_url = f"images/{cat_name}/{cat_name}_{image_num}.jpg"
+            # Используем латинские названия папок
+            latin_category = category_mapping[cat_name]
+            image_url = f"images/{latin_category}/{latin_category}_{image_num}.jpg"
             specs = {"spec": f"value{i}"}
             conn.execute(
                 sa.text("""
@@ -351,7 +367,9 @@ def upgrade():
                 specs = {"spec1": f"value{random.randint(1, 10)}", "spec2": f"value{random.randint(1, 10)}"}
             price = random.randint(1000, 150000)
             image_num = ((i - 1) % 10) + 1
-            image_url = f"images/{cat_name}/{cat_name}_{image_num}.jpg"
+            # Используем латинские названия папок
+            latin_category = category_mapping[cat_name]
+            image_url = f"images/{latin_category}/{latin_category}_{image_num}.jpg"
             conn.execute(
                 sa.text("""
                     INSERT INTO products (name, category_id, description, price, image_url, specs, created_at)
