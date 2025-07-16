@@ -420,39 +420,35 @@ async def handle_product_choice(message: Message, state: FSMContext):
     if not isinstance(extra, dict):
         extra = {}
     last_products = extra.get("last_products", [])
-    last_products_id = get_products_id(last_products) if last_products else None
-    current_products_id = extra.get("current_product_list_id")
-    choice = user_message.lower()
+    if not last_products:
+        await message.answer("Нет актуального списка товаров для выбора. Пожалуйста, начните подбор заново.")
+        await state.clear()
+        session.close()
+        return
+    # Формируем prompt для LLM
+    products_list = "\n".join([f"{idx+1}. {prod['name']}" for idx, prod in enumerate(last_products)])
+    llm_prompt = (
+        f"Вот список товаров:\n{products_list}\n\n"
+        f"Пользователь написал: '{user_message}'\n"
+        f"Твоя задача — определить, какой товар из списка выбрал пользователь. Ответь только номером (1, 2, 3 и т.д.). Если не удалось однозначно определить — напиши 'неизвестно'."
+    )
+    llm_reply = await get_gpt_response(user_message, llm_prompt)
+    llm_reply = llm_reply.strip().lower()
     chosen = None
-    # По номеру
-    for idx, prod in enumerate(last_products, 1):
-        if str(idx) == choice.strip():
-            chosen = prod
+    # Пытаемся извлечь номер из ответа LLM
+    for idx in range(1, len(last_products)+1):
+        if str(idx) in llm_reply:
+            chosen = last_products[idx-1]
             break
-    # По названию (частичное совпадение)
-    if not chosen:
-        for prod in last_products:
-            if prod["name"].lower() in choice or choice in prod["name"].lower():
-                chosen = prod
-                break
     if chosen:
-        from aiogram.types import FSInputFile
-        from pathlib import Path
-        file_path = Path.cwd() / chosen["image_url"]
-        if file_path.exists():
-            photo = FSInputFile(str(file_path))
-            caption = f"{chosen['name']} — {chosen['price']}₽\n{chosen['desc']}"
-            await message.answer_photo(photo, caption=caption + "\n\nХотите оформить заказ на этот товар? Напишите 'оформить заказ' или свяжитесь с менеджером.")
-        else:
-            await message.answer(f"{chosen['name']}\nФото не найдено.\n{chosen['desc']}")
-        # Сохраняем выбранный товар и переходим в состояние карточки товара
+        await message.answer_photo(chosen["image_url"], caption=f"{chosen['name']} — {chosen['price']}₽\n{chosen['desc']}\n\nХотите оформить заказ на этот товар? Напишите 'оформить заказ' или свяжитесь с менеджером.")
         extra["current_product"] = chosen
-        extra["current_product_list_id"] = last_products_id
         user.extra_data = to_plain_dict(extra)  # type: ignore
         session.commit()
         await state.set_state(OrderStates.product_card)
     else:
-        await message.answer("Не удалось определить, какой товар вы выбрали. Пожалуйста, введите номер или точное название товара из последней выдачи.")
+        await message.answer("Не удалось определить, какой товар вы выбрали. Пожалуйста, попробуйте ещё раз или уточните ваш выбор.")
+        await state.clear()
     session.close()
 
 @router.message(StateFilter(OrderStates.product_card), F.text)
