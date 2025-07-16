@@ -348,7 +348,13 @@ async def handle_message(message: Message, state: FSMContext):
             await state.set_state(OrderStates.waiting_for_choice)
         # else убираем — не отправляем ничего, если альтернативы уже были предложены
     else:
-        await message.answer(reply)
+        # Удаляем все строки 'Параметры поиска: ...' из ответа LLM перед отправкой пользователю
+        cleaned_reply = "\n".join(
+            line for line in reply.splitlines()
+            if not line.strip().lower().startswith("параметры поиска:")
+        ).strip()
+        if cleaned_reply:
+            await message.answer(cleaned_reply)
     session.close()
 
 # Обработка запроса фото товара
