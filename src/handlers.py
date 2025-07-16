@@ -18,6 +18,7 @@ from aiogram.filters import StateFilter
 from aiogram.fsm.state import State, StatesGroup
 import json
 import logging
+import hashlib
 
 router = Router()
 
@@ -97,6 +98,9 @@ def to_plain_dict(obj):
         return obj
     else:
         return str(obj)
+
+def get_products_id(products):
+    return hashlib.md5(json.dumps(products, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 @router.message(Command("start"))
 async def cmd_start(message: Message):
@@ -344,6 +348,7 @@ async def handle_message(message: Message, state: FSMContext):
                     "price": price_val
                 })
             extra["last_products"] = last_products
+            extra["current_product_list_id"] = get_products_id(last_products)
             user.extra_data = to_plain_dict(extra)  # type: ignore
             session.commit()
             await state.set_state(OrderStates.waiting_for_choice)
@@ -379,7 +384,6 @@ async def handle_photo_request(message: Message, state: FSMContext):
     if not isinstance(extra, dict):
         extra = {}
     last_products = extra.get("last_products", [])
-    # Пытаемся найти номер или название товара в сообщении
     choice = user_message.lower()
     chosen = None
     # По номеру
@@ -393,6 +397,11 @@ async def handle_photo_request(message: Message, state: FSMContext):
             if prod["name"].lower() in choice:
                 chosen = prod
                 break
+    # Если не найдено, но есть current_product в extra_data
+    if not chosen:
+        current_product = extra.get("current_product")
+        if current_product:
+            chosen = current_product
     if chosen:
         if chosen["image_url"].startswith("images/"):
             from aiogram.types import FSInputFile
@@ -429,6 +438,8 @@ async def handle_product_choice(message: Message, state: FSMContext):
     if not isinstance(extra, dict):
         extra = {}
     last_products = extra.get("last_products", [])
+    last_products_id = get_products_id(last_products) if last_products else None
+    current_products_id = extra.get("current_product_list_id")
     choice = user_message.lower()
     chosen = None
     # По номеру
@@ -436,10 +447,10 @@ async def handle_product_choice(message: Message, state: FSMContext):
         if str(idx) == choice.strip():
             chosen = prod
             break
-    # По названию
+    # По названию (частичное совпадение)
     if not chosen:
         for prod in last_products:
-            if prod["name"].lower() in choice:
+            if prod["name"].lower() in choice or choice in prod["name"].lower():
                 chosen = prod
                 break
     if chosen:
@@ -452,6 +463,12 @@ async def handle_product_choice(message: Message, state: FSMContext):
             await message.answer_photo(photo, caption=caption + "\n\nХотите оформить заказ на этот товар? Напишите 'оформить заказ' или свяжитесь с менеджером.")
         else:
             await message.answer(f"{chosen['name']}\nФото не найдено.\n{chosen['desc']}")
+        # Обновляем current_product только если last_products_id изменился
+        if last_products_id and last_products_id != current_products_id:
+            extra["current_product"] = chosen
+            extra["current_product_list_id"] = last_products_id
+            user.extra_data = to_plain_dict(extra)  # type: ignore
+            session.commit()
     else:
         await message.answer("Не удалось определить, какой товар вы выбрали. Пожалуйста, введите номер или точное название товара из последней выдачи.")
     session.close()
