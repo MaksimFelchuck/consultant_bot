@@ -348,6 +348,13 @@ async def handle_message(message: Message, state: FSMContext):
             msg = "По вашему запросу ничего не найдено, но вот несколько товаров из этой категории, которые могут вам подойти:"
         await message.answer(msg)
         main_text = ""
+    # --- Обработка случая, когда не найдено ни одного товара даже после ослабления всех фильтров ---
+    if not products:
+        await message.answer(
+            "К сожалению, по вашему запросу ничего не найдено. Попробуйте изменить параметры поиска или увеличить бюджет."
+        )
+        session.close()
+        return
     if products:
         text_lines = [main_text] if main_text else []
         for idx, prod in enumerate(products, 1):
