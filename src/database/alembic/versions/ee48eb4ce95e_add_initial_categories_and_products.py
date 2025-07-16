@@ -263,31 +263,8 @@ def upgrade():
 
     for cat_idx, (cat_name, cat_key) in enumerate(categories):
         cat_id = conn.execute(sa.text("SELECT id FROM categories WHERE name=:name"), {"name": cat_name}).scalar()
-        # Первые 5 осмысленных товаров с локальными фото
-        for i, (name, description, _) in enumerate(products_by_category[cat_name][:5], 1):
-            price = random.randint(1000, 150000)
-            image_num = ((i - 1) % 10) + 1
-            # Используем латинские названия папок
-            latin_category = category_mapping[cat_name]
-            image_url = f"images/{latin_category}/{latin_category}_{image_num}.jpg"
-            specs = {"spec": f"value{i}"}
-            conn.execute(
-                sa.text("""
-                    INSERT INTO products (name, category_id, description, price, image_url, specs, created_at)
-                    VALUES (:name, :category_id, :description, :price, :image_url, :specs, :created_at)
-                """),
-                {
-                    "name": name,
-                    "category_id": cat_id,
-                    "description": description,
-                    "price": price,
-                    "image_url": image_url,
-                    "specs": json.dumps(specs),
-                    "created_at": now
-                }
-            )
-        # Остальные 95 рандомных товаров
-        for i in range(6, 101):
+        # Генерируем 100 осмысленных товаров для каждой категории
+        for i in range(1, 101):
             if cat_name == "Смартфоны":
                 brand, models = random.choice(smartphone_brands)
                 model = random.choice(models)
@@ -296,6 +273,7 @@ def upgrade():
                 name = f"{brand} {model} {storage} ({color})"
                 description = f"Смартфон {brand} {model} с {storage} памяти, цвет: {color}. Отличная камера, быстрый процессор, современный дизайн."
                 specs = {"Экран": random.choice(["6.1" , "6.5", "6.7"]) + '" OLED', "Камера": f"{random.randint(12, 200)} Мп", "Батарея": f"{random.randint(3000, 6000)} мАч"}
+                image_url = random.choice(image_urls_pool)
             elif cat_name == "Планшеты":
                 brand, models = random.choice(tablet_brands)
                 model = random.choice(models)
@@ -304,6 +282,7 @@ def upgrade():
                 name = f"{brand} {model} {storage} ({color})"
                 description = f"Планшет {brand} {model} с {storage} памяти, цвет: {color}. Подходит для работы, учёбы и развлечений."
                 specs = {"Экран": random.choice(["10.2", "11", "12.9"]) + '" IPS', "Процессор": random.choice(["Apple M2", "Snapdragon 8+ Gen 1", "Kirin 9000"]), "Батарея": f"{random.randint(6000, 12000)} мАч"}
+                image_url = random.choice(image_urls_pool)
             elif cat_name == "Ноутбуки":
                 brand, models = random.choice(laptop_brands)
                 model = random.choice(models)
@@ -312,6 +291,7 @@ def upgrade():
                 name = f"{brand} {model} {storage} ({color})"
                 description = f"Ноутбук {brand} {model} с {storage}, цвет: {color}. Для работы, учёбы и игр."
                 specs = {"Экран": random.choice(["14", "15.6", "16"]) + '" IPS', "Процессор": random.choice(["Intel i7", "AMD Ryzen 7", "Apple M3"]), "ОЗУ": f"{random.choice([8, 16, 32])} ГБ"}
+                image_url = random.choice(image_urls_pool)
             elif cat_name == "Телевизоры":
                 brand, models = random.choice(tv_brands)
                 model = random.choice(models)
@@ -319,6 +299,7 @@ def upgrade():
                 name = f"{brand} {model} {size}"
                 description = f"Телевизор {brand} {model} диагональю {size}. Яркое изображение, умные функции."
                 specs = {"Разрешение": random.choice(["4K", "8K", "FullHD"]), "Тип": random.choice(["OLED", "QLED", "LED"]), "Год": random.choice([2022, 2023, 2024])}
+                image_url = random.choice(image_urls_pool)
             elif cat_name == "Наушники":
                 brand, models = random.choice(headphones_brands)
                 model = random.choice(models)
@@ -326,6 +307,7 @@ def upgrade():
                 name = f"{brand} {model} ({color})"
                 description = f"Наушники {brand} {model}, цвет: {color}. Отличный звук и комфорт."
                 specs = {"Тип": random.choice(["TWS", "Накладные", "Вкладыши"]), "Шумоподавление": random.choice(["Да", "Нет"]), "Время работы": f"{random.randint(5, 40)} ч"}
+                image_url = random.choice(image_urls_pool)
             elif cat_name == "Смарт-часы":
                 brand, models = random.choice(watch_brands)
                 model = random.choice(models)
@@ -333,6 +315,7 @@ def upgrade():
                 name = f"{brand} {model} ({color})"
                 description = f"Смарт-часы {brand} {model}, цвет: {color}. Фитнес, уведомления, стиль."
                 specs = {"Экран": random.choice(["AMOLED", "IPS"]), "GPS": random.choice(["Да", "Нет"]), "Влагозащита": random.choice(["IP68", "5ATM"])}
+                image_url = random.choice(image_urls_pool)
             elif cat_name == "Фотоаппараты":
                 brand, models = random.choice(camera_brands)
                 model = random.choice(models)
@@ -340,6 +323,7 @@ def upgrade():
                 name = f"{brand} {model} {ctype}"
                 description = f"Фотоаппарат {brand} {model} комплект: {ctype}. Для фото и видео."
                 specs = {"Матрица": random.choice(["APS-C", "FullFrame", "Micro 4/3"]), "Мп": random.randint(16, 60), "Видео": random.choice(["4K", "8K", "FullHD"])}
+                image_url = random.choice(image_urls_pool)
             elif cat_name == "Игровые приставки":
                 brand, models = random.choice(console_brands)
                 model = random.choice(models)
@@ -347,6 +331,7 @@ def upgrade():
                 name = f"{brand} {model} ({color})"
                 description = f"Игровая приставка {brand} {model}, цвет: {color}. Современные игры и развлечения."
                 specs = {"Поколение": random.choice(["9-е", "8-е"]), "Диск": random.choice(["SSD", "HDD"]), "Год": random.choice([2020, 2021, 2022, 2023])}
+                image_url = random.choice(image_urls_pool)
             elif cat_name == "Мониторы":
                 brand, models = random.choice(monitor_brands)
                 model = random.choice(models)
@@ -354,6 +339,7 @@ def upgrade():
                 name = f"{brand} {model} {size}"
                 description = f"Монитор {brand} {model} диагональю {size}. Отличная цветопередача и частота обновления."
                 specs = {"Разрешение": random.choice(["4K", "QHD", "FullHD"]), "Тип": random.choice(["IPS", "VA", "OLED"]), "Гц": random.choice([60, 75, 120, 144, 165])}
+                image_url = random.choice(image_urls_pool)
             elif cat_name == "Аксессуары":
                 brand, models = random.choice(accessory_brands)
                 model = random.choice(models)
@@ -361,15 +347,13 @@ def upgrade():
                 name = f"{brand} {model} — {atype}"
                 description = f"{atype.capitalize()} {brand} {model}. Полезный аксессуар для техники."
                 specs = {"Тип": atype, "Совместимость": random.choice(["универсальный", "Apple", "Android"])}
+                image_url = random.choice(image_urls_pool)
             else:
-                name = f"{cat_name} {i+1}"
+                name = f"{cat_name} {i}"
                 description = f"Описание для {name} — современный товар категории {cat_name}."
                 specs = {"spec1": f"value{random.randint(1, 10)}", "spec2": f"value{random.randint(1, 10)}"}
+                image_url = random.choice(image_urls_pool)
             price = random.randint(1000, 150000)
-            image_num = ((i - 1) % 10) + 1
-            # Используем латинские названия папок
-            latin_category = category_mapping[cat_name]
-            image_url = f"images/{latin_category}/{latin_category}_{image_num}.jpg"
             conn.execute(
                 sa.text("""
                     INSERT INTO products (name, category_id, description, price, image_url, specs, created_at)
