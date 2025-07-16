@@ -50,23 +50,32 @@ async def handle_message(message: Message, state: FSMContext):
         history = data.get("history", [])
         product_list_ids = data.get("product_list", [])
         selected_product_id = data.get("selected_product_id")
-        dialog = history[-3:] + [message.text or ""]
+        # --- Накопление истории ---
+        history.append(message.text or "")
+        # --- Передаём в LLM последние 5 сообщений (или всю историю, если короткая) ---
+        dialog = history[-5:]
         llm_input = "\n".join(dialog)
         from context import context_manager
         context = context_manager.get_context()
         llm_response = await get_gpt_response(llm_input, context)
-        extracted = {}
+        # --- Парсим параметры из ответа LLM ---
         import re
+        extracted = {}
         match = re.search(r"Параметры поиска:([^\n]*)", llm_response)
         if match:
             params = match.group(1)
             for key in PREFERENCE_KEYS:
                 m = re.search(fr"{key}\s*=\s*([^,]*)", params)
                 if m:
-                    extracted[key] = m.group(1).strip()
-        preferences.update({k: v for k, v in extracted.items() if v})
-        history.append(message.text or "")
+                    val = m.group(1).strip()
+                    if val and val.lower() != 'none':
+                        extracted[key] = val
+        # --- Накопление параметров: не затираем, а дополняем ---
+        for k, v in extracted.items():
+            if v and (not preferences.get(k) or preferences[k].lower() != v.lower()):
+                preferences[k] = v
         await state.update_data(preferences=preferences, history=history)
+        # --- Определяем, что ещё не хватает ---
         missing = [k for k in ["category", "budget", "brand", "color", "characteristics"] if not preferences.get(k)]
         if missing:
             questions = {
@@ -77,7 +86,17 @@ async def handle_message(message: Message, state: FSMContext):
                 "characteristics": "есть ли важные характеристики (например, размер экрана, камера)?"
             }
             ask = " ".join([questions[m] for m in missing])
-            await message.answer(f"Спасибо! Уточните, пожалуйста: {ask}")
+            # Формируем естественный вопрос только по недостающим параметрам
+            known = []
+            if preferences.get("category"): known.append(f"категория: {preferences['category']}")
+            if preferences.get("brand"): known.append(f"бренд: {preferences['brand']}")
+            if preferences.get("budget"): known.append(f"бюджет: {preferences['budget']}")
+            if preferences.get("color"): known.append(f"цвет: {preferences['color']}")
+            if preferences.get("characteristics"): known.append(f"характеристики: {preferences['characteristics']}")
+            if known:
+                await message.answer(f"Понял: {', '.join(known)}. {ask}")
+            else:
+                await message.answer(f"Спасибо! Уточните, пожалуйста: {ask}")
             return
         # --- Проверка: выбор товара по номеру или названию ---
         if product_list_ids and message.text:
