@@ -323,7 +323,7 @@ async def handle_message(message: Message, state: FSMContext):
             text_lines = [main_text] if main_text else []
             for idx, prod in enumerate(products, 1):
                 text_lines.append(f"{idx}. {prod.name} — {prod.price}₽\n{prod.description}")
-            text_lines.append("\nЕсли хотите посмотреть фото товара — напишите 'фото' и номер или название товара.")
+            text_lines.append("\nЕсли какой-то телефон вас заинтересовал, введите его номер или название, чтобы узнать подробности и увидеть фото.")
             await message.answer("\n\n".join(text_lines))
             # Сохраняем последние товары для выбора
             extra = user.extra_data if isinstance(user.extra_data, dict) else {}
@@ -406,4 +406,52 @@ async def handle_photo_request(message: Message, state: FSMContext):
             await message.answer_photo(chosen["image_url"], caption=chosen["name"])
     else:
         await message.answer("Не удалось определить, для какого товара показать фото. Пожалуйста, укажите номер или точное название товара из последней выдачи.")
-    session.close() 
+    session.close()
+
+@router.message(StateFilter(OrderStates.waiting_for_choice), F.text)
+async def handle_product_choice(message: Message, state: FSMContext):
+    user_message = message.text or ""
+    session = SessionLocal()
+    tg_user = message.from_user
+    if tg_user is None:
+        await message.answer("Ошибка: не удалось определить пользователя Telegram.")
+        return
+    user = get_or_create_user(
+        session,
+        telegram_id=str(tg_user.id),
+        username=tg_user.username,
+        first_name=tg_user.first_name,
+        last_name=tg_user.last_name
+    )
+    session.refresh(user)
+    extra = user.extra_data if isinstance(user.extra_data, dict) else {}
+    if not isinstance(extra, dict):
+        extra = {}
+    last_products = extra.get("last_products", [])
+    choice = user_message.lower()
+    chosen = None
+    # По номеру
+    for idx, prod in enumerate(last_products, 1):
+        if str(idx) == choice.strip():
+            chosen = prod
+            break
+    # По названию
+    if not chosen:
+        for prod in last_products:
+            if prod["name"].lower() in choice:
+                chosen = prod
+                break
+    if chosen:
+        from aiogram.types import FSInputFile
+        from pathlib import Path
+        file_path = Path.cwd() / chosen["image_url"]
+        if file_path.exists():
+            photo = FSInputFile(str(file_path))
+            caption = f"{chosen['name']} — {chosen['price']}₽\n{chosen['desc']}"
+            await message.answer_photo(photo, caption=caption + "\n\nХотите оформить заказ на этот товар? Напишите 'оформить заказ' или свяжитесь с менеджером.")
+        else:
+            await message.answer(f"{chosen['name']}\nФото не найдено.\n{chosen['desc']}")
+    else:
+        await message.answer("Не удалось определить, какой товар вы выбрали. Пожалуйста, введите номер или точное название товара из последней выдачи.")
+    session.close()
+    await state.clear() 
