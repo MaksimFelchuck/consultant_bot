@@ -329,9 +329,14 @@ async def handle_photo_request(message: Message, state: FSMContext):
                 break
     if chosen:
         if chosen["image_url"].startswith("images/"):
-            file_path = Path(chosen["image_url"]).resolve()
-            photo = FSInputFile(str(file_path))
-            await message.answer_photo(photo, caption=chosen["name"])
+            from aiogram.types import FSInputFile
+            from pathlib import Path
+            file_path = Path.cwd() / chosen["image_url"]
+            if file_path.exists():
+                photo = FSInputFile(str(file_path))
+                await message.answer_photo(photo, caption=chosen["name"])
+            else:
+                await message.answer(f"Файл не найден: {file_path}")
         else:
             await message.answer_photo(chosen["image_url"], caption=chosen["name"])
     else:
