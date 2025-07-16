@@ -8,6 +8,6 @@ class Category(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    products = relationship('Product', back_populates='category_rel')
+    products = relationship('Product', back_populates='category', cascade="all, delete-orphan", lazy="dynamic")
 
 Index('ix_category_name', Category.name) 
