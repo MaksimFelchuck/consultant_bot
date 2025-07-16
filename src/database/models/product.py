@@ -13,6 +13,7 @@ class Product(Base):
     price = Column(Integer, index=True)
     image_url = Column(String)
     specs = Column(JSON)  # Характеристики устройства (как JSON)
+    os = Column(String, index=True)  # Операционная система (например, Android, iOS, HarmonyOS)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     category_rel = relationship('Category', back_populates='products')
 

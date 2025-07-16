@@ -414,7 +414,7 @@ async def handle_any_photo_request(message: Message, state: FSMContext):
     if chosen and "image_url" in chosen:
         await message.answer_photo(chosen["image_url"], caption=chosen.get("name", "Фото товара"))
     else:
-        await message.answer("Не удалось определить, для какого товара показать фото. Пожалуйста, выберите товар из последней выдачи.")
+        await message.answer("Не удалось определить, для какого товара показать фото. Пожалуйста, выберите товар из последней выдачи или уточните, что вы хотите увидеть. Например: 'покажи фото первого телефона', 'покажи фото Samsung'.")
     session.close()
 
 @router.message(StateFilter(OrderStates.waiting_for_choice), F.text)
@@ -469,7 +469,7 @@ async def handle_product_choice(message: Message, state: FSMContext):
         session.commit()
         await state.set_state(OrderStates.product_card)
     else:
-        await message.answer("Не удалось определить, какой товар вы выбрали. Пожалуйста, введите номер или точное название товара из последней выдачи.")
+        await message.answer("Не удалось определить, какой товар вы выбрали. Пожалуйста, введите номер или точное название товара из последней выдачи или уточните ваш запрос. Например: 'покажи первый', 'покажи Samsung'.")
     session.close()
 
 @router.message(StateFilter(OrderStates.product_card), F.text)
@@ -495,7 +495,7 @@ async def handle_product_card(message: Message, state: FSMContext):
     current_product = extra.get("current_product")
     
     if not current_product:
-        await message.answer("Извините, не удалось найти информацию о выбранном товаре. Попробуйте выбрать товар заново.")
+        await message.answer("Извините, не удалось найти информацию о выбранном товаре. Попробуйте выбрать товар заново или уточните ваш запрос. Например: 'покажи список телефонов', 'покажи Samsung'.")
         await state.clear()
         session.close()
         return
@@ -556,6 +556,9 @@ async def handle_product_card(message: Message, state: FSMContext):
 Отвечай кратко и по делу. Если пользователь спрашивает о характеристиках, которые не указаны в описании, вежливо сообщи, что эта информация временно недоступна и предложи связаться с менеджером для уточнения деталей."""
         
         reply = await get_gpt_response(user_message, context)
-        await message.answer(reply)
+        if not reply or not reply.strip():
+            await message.answer("Извините, я не смог найти ответ на ваш вопрос. Пожалуйста, уточните, что именно вас интересует, или попробуйте переформулировать запрос. Например: 'характеристики', 'цена', 'фото'.")
+        else:
+            await message.answer(reply)
     
     session.close() 
