@@ -175,6 +175,16 @@ async def handle_message(message: Message, state: FSMContext):
             if "=" in part:
                 k, v = part.split("=", 1)
                 params[k.strip().lower()] = v.strip().lower()
+        # Проверка наличия хотя бы одной характеристики
+        KEY_PARAMS = ["цена", "бюджет", "бренд", "цвет", "характеристики", "размер", "модель", "объём", "оперативная память", "экран"]
+        has_characteristics = any(
+            k in params and params[k] and params[k] not in IGNORE_WORDS
+            for k in KEY_PARAMS
+        )
+        if not has_characteristics:
+            await message.answer(reply)
+            session.close()
+            return
         # Поиск товаров в базе
         query = session.query(Product)
         category_obj = None
