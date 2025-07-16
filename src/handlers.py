@@ -332,10 +332,20 @@ async def handle_message(message: Message, state: FSMContext):
         if not (line.strip().lower().startswith("параметры поиска:") or 
                line.strip().lower().startswith("извлечённые параметры:"))
     ).strip()
+    # --- Обработка зависания/непонятного запроса ---
+    if not main_text and not products:
+        await message.answer(
+            "Извините, я не совсем понял ваш запрос. Пожалуйста, уточните, какой товар вас интересует, например: 'покажи первый айфон' или 'расскажи подробнее про iPhone 15 Pro'."
+        )
+        session.close()
+        return
     if dropped:
-        msg = "По вашему запросу ничего не найдено, но вот несколько товаров из этой категории, которые могут вам подойти:"
-        if dropped != ['все фильтры']:
-            msg += " (ослаблены фильтры: " + ", ".join(dropped) + ")"
+        # Новая логика: если среди dropped есть 'цвет' и пользователь явно указывал цвет
+        if 'цвет' in dropped and 'цвет' in params and params['цвет']:
+            color = params['цвет']
+            msg = f"{color.capitalize()} айфон не нашёл, но могу предложить такие айфоны:"
+        else:
+            msg = "По вашему запросу ничего не найдено, но вот несколько товаров из этой категории, которые могут вам подойти:"
         await message.answer(msg)
         main_text = ""
     if products:
