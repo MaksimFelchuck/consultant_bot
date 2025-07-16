@@ -323,7 +323,8 @@ async def handle_message(message: Message, state: FSMContext):
             text_lines = [main_text] if main_text else []
             for idx, prod in enumerate(products, 1):
                 text_lines.append(f"{idx}. {prod.name} — {prod.price}₽\n{prod.description}")
-            text_lines.append("\nЕсли какой-то телефон вас заинтересовал, введите его номер или название, чтобы узнать подробности и увидеть фото.")
+            category_name = category_obj.name if category_obj and hasattr(category_obj, 'name') else "товар"
+            text_lines.append(f"\nЕсли какой-то {category_name.lower()} вас заинтересовал, введите его номер или название, чтобы узнать подробности и увидеть фото.")
             await message.answer("\n\n".join(text_lines))
             # Сохраняем последние товары для выбора
             extra = user.extra_data if isinstance(user.extra_data, dict) else {}
