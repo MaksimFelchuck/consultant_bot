@@ -4,6 +4,17 @@ import json
 import os
 from config import OPENAI_API_KEY, GROQ_API_KEY
 from context import context_manager
+from typing import Optional
+
+OPENAI_ENDPOINT = "https://api.openai.com/v1"
+GROQ_ENDPOINT = "https://api.groq.com/openai/v1"
+DEFAULT_MODEL_OPENAI = "gpt-3.5-turbo"
+DEFAULT_MODEL_GROQ = "llama3-70b-8192"
+ERROR_MSG = "Извините, не удалось получить ответ от ассистента."
+PROVIDERS = {
+    "OpenAI": {"api_key": OPENAI_API_KEY, "endpoint": OPENAI_ENDPOINT, "default_model": DEFAULT_MODEL_OPENAI},
+    "Groq": {"api_key": GROQ_API_KEY, "endpoint": GROQ_ENDPOINT, "default_model": DEFAULT_MODEL_GROQ},
+}
 
 if OPENAI_API_KEY:
     openai.api_key = OPENAI_API_KEY
@@ -19,7 +30,8 @@ else:
 logging.basicConfig(level=logging.ERROR)
 logging.warning(f"[AI Provider] Выбран: {_current_provider}, endpoint: {openai.api_base}")
 
-async def check_openai_account():
+async def check_openai_account() -> None:
+    """Проверяет доступность аккаунта OpenAI/Groq и выводит информацию в лог."""
     try:
         models = await openai.Model.alist()
         logging.info(f"[{_current_provider}] API-ключ начинается с: {str(openai.api_key)[:8]}... (скрыто)")
@@ -27,17 +39,12 @@ async def check_openai_account():
     except Exception as e:
         logging.error(f"[{_current_provider}] Ошибка проверки аккаунта: {e}")
 
-async def get_gpt_response(user_message: str, context: str = "", model: str | None = None):
+async def get_gpt_response(user_message: str, context: str = "", model: Optional[str] = None) -> str:
+    """Получить ответ от LLM (OpenAI/Groq) с учётом контекста и выбранной модели."""
     if not context:
         context = context_manager.get_context()
-    # Выбор модели по провайдеру
     if not model:
-        if _current_provider == "OpenAI":
-            model = "gpt-3.5-turbo"
-        elif _current_provider == "Groq":
-            model = "llama3-70b-8192"
-        else:
-            model = "gpt-3.5-turbo"  # fallback
+        model = PROVIDERS[_current_provider]["default_model"]
     try:
         response = await openai.ChatCompletion.acreate(
             model=model,
@@ -46,21 +53,17 @@ async def get_gpt_response(user_message: str, context: str = "", model: str | No
                 {"role": "user", "content": user_message}
             ]
         )
-        # Универсальное приведение к dict
         if isinstance(response, str):
             response = json.loads(response)
         return response['choices'][0]['message']['content']  # type: ignore
     except Exception as e:
         logging.error(f"{_current_provider} API error: {e}")
-        return "Извините, не удалось получить ответ от ассистента."
+        return ERROR_MSG
 
 async def get_category_by_llm(user_message: str) -> str:
-    """
-    Определяет категорию товара из запроса пользователя через LLM.
-    Возвращает строку: название категории (например, 'Смартфоны', 'Ноутбуки', ...)
-    """
+    """Определяет категорию товара из запроса пользователя через LLM."""
     prompt = (
-        "Пользователь написал: '" + user_message + "'. "
+        f"Пользователь написал: '{user_message}'. "
         "Определи, к какой из этих категорий относится его запрос: "
         "Смартфоны, Планшеты, Ноутбуки, Телевизоры, Наушники, Смарт-часы, Фотоаппараты, Игровые приставки, Мониторы, Аксессуары. "
         "Ответь только одним словом — названием категории из списка. Если не удалось определить, напиши 'Неизвестно'."
@@ -68,7 +71,6 @@ async def get_category_by_llm(user_message: str) -> str:
     try:
         response = await get_gpt_response(user_message, prompt)
         category = response.strip().split()[0]
-        # Приводим к формату с большой буквы
         return category.capitalize()
     except Exception:
         return "Неизвестно" 

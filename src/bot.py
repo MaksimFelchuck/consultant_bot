@@ -11,14 +11,22 @@ from config import BOT_TOKEN
 from handlers import router
 from openai_api import check_openai_account
 
-async def main():
-    # await check_openai_account()
-    logging.info("[ТехноМаркет] Бот успешно запущен и готов к работе с клиентами.")
-    bot = Bot(token=BOT_TOKEN)
-    dp = Dispatcher(storage=MemoryStorage())
-    dp.include_router(router)
-    logging.info("[ТехноМаркет] Контекст бизнес-ассистента подключён. Все обращения клиентов будут обработаны корректно.")
-    await dp.start_polling(bot)
+LOG_BOT_STARTED = "[ТехноМаркет] Бот успешно запущен и готов к работе с клиентами."
+LOG_CONTEXT_READY = "[ТехноМаркет] Контекст бизнес-ассистента подключён. Все обращения клиентов будут обработаны корректно."
+
+async def main() -> None:
+    """Точка входа для запуска Telegram-бота."""
+    try:
+        # await check_openai_account()
+        logging.info(LOG_BOT_STARTED)
+        bot = Bot(token=BOT_TOKEN)
+        dp = Dispatcher(storage=MemoryStorage())
+        dp.include_router(router)
+        logging.info(LOG_CONTEXT_READY)
+        await dp.start_polling(bot)
+    except Exception as e:
+        logging.critical(f"[ТехноМаркет] Критическая ошибка запуска бота: {e}")
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main()) 

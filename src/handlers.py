@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, InputFile, FSInputFile
+from aiogram.types import Message, FSInputFile
 from aiogram.filters import Command
 from context import context_manager
 from openai_api import get_gpt_response, get_category_by_llm
@@ -19,6 +19,9 @@ from aiogram.fsm.state import State, StatesGroup
 import json
 import logging
 import hashlib
+from typing import Tuple
+from dataclasses import dataclass
+from sqlalchemy.orm import Session
 
 router = Router()
 
@@ -103,9 +106,75 @@ def to_plain_dict(obj):
 def get_products_id(products):
     return hashlib.md5(json.dumps(products, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
-@router.message(Command("start"))
-async def cmd_start(message: Message):
+# --- Константы сообщений ---
+USER_NOT_FOUND_MSG = "Ошибка: не удалось определить пользователя Telegram."
+TECHNICAL_ERROR_MSG = "Произошла техническая ошибка. Пожалуйста, попробуйте ещё раз или переформулируйте запрос. Если проблема повторяется, напишите: 'помощь'."
+PHOTO_ERROR_MSG = "Произошла техническая ошибка при попытке показать фото. Попробуйте ещё раз или выберите другой товар."
+CHOICE_ERROR_MSG = "Произошла техническая ошибка при выборе товара. Пожалуйста, попробуйте ещё раз или выберите другой товар."
+CARD_ERROR_MSG = "Произошла техническая ошибка при обработке информации о товаре. Пожалуйста, попробуйте ещё раз или выберите другой товар."
+CONTEXT_UPDATED_MSG = "Контекст для консультаций обновлён! Теперь я буду учитывать новые инструкции от ТехноМаркет."
+CONTEXT_PROMPT_MSG = "Пожалуйста, укажите новый контекст после команды. Например: /setcontext Вы консультант по бытовой технике."
+CONTEXT_RESET_MSG = "Контекст сброшен к стандартному для ТехноМаркет. Я снова готов консультировать по товарам и услугам компании!"
+PHOTO_NOT_FOUND_MSG = "Фото товара {name} временно недоступно."
+PRODUCT_NOT_FOUND_MSG = "Извините, не удалось найти информацию о выбранном товаре. Попробуйте выбрать товар заново или уточните ваш запрос. Например: 'покажи список телефонов', 'покажи Samsung'."
+CHOOSE_ANOTHER_MSG = "Возвращаюсь к списку товаров. Выберите другой товар или уточните параметры поиска."
+NO_ANSWER_MSG = "Извините, я не смог найти ответ на ваш вопрос. Пожалуйста, уточните, что именно вас интересует, или попробуйте переформулировать запрос. Например: 'характеристики', 'цена', 'фото'."
+
+def handle_errors(func):
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except ValueError as e:
+            await args[0].answer(str(e))
+        except Exception as e:
+            import logging
+            logging.error(f"[{func.__name__}] Ошибка: {e}")
+            await args[0].answer(TECHNICAL_ERROR_MSG)
+    return wrapper
+
+def get_user_and_extra(message: Message) -> Tuple[Session, 'User', int, dict]:
     session = SessionLocal()
+    tg_user = message.from_user
+    if tg_user is None:
+        session.close()
+        raise ValueError(USER_NOT_FOUND_MSG)
+    user = get_or_create_user(
+        session,
+        telegram_id=str(tg_user.id),
+        username=tg_user.username,
+        first_name=tg_user.first_name,
+        last_name=tg_user.last_name
+    )
+    session.refresh(user)
+    user_id = user.id
+    if hasattr(user_id, 'value'):
+        user_id = user_id.value
+    if not isinstance(user_id, int):
+        user_id = int(user_id)
+    extra = user.extra_data if isinstance(user.extra_data, dict) else {}
+    if not isinstance(extra, dict):
+        extra = {}
+    return session, user, user_id, extra
+
+@dataclass
+class ProductCard:
+    name: str
+    image_url: str
+    desc: str
+    price: int
+
+def format_product_card(card: ProductCard) -> str:
+    return f"{card.name} — {card.price}₽\n{card.desc}"
+
+def format_products_list(products: list[ProductCard]) -> str:
+    return "\n\n".join(
+        f"{idx+1}. {format_product_card(p)}" for idx, p in enumerate(products)
+    )
+
+@router.message(Command("start"))
+@handle_errors
+async def cmd_start(message: Message):
+    session, user, user_id, extra = get_user_and_extra(message)
     categories = session.query(Category).all()
     session.close()
     cat_list = "\n".join([f"• {cat.name}" for cat in categories])
@@ -117,48 +186,38 @@ async def cmd_start(message: Message):
         "Я — виртуальный помощник компании 🤖. Готов помочь с выбором техники, консультацией по товарам и оформлением заказа!\n\n"
         "В нашем магазине есть такие категории:\n"
         f"{cat_list}\n\n"
-        "Что вас интересует? Пишите прямо сюда! 😊\n\n"
-        "📦 Доставка по РФ | 💳 Оплата онлайн/наличными | 🛡️ Гарантия 1 год\n"
+        "Что вас интересует? Пишите прямо сюда! \n\n"
+        "📦 Доставка по РФ | �� Оплата онлайн/наличными | 🛡️ Гарантия 1 год\n"
         "\nСайт: https://technomarket.ru\n\n"
         "⚠️ Внимание: бот тестовый, фото товаров не настоящие, заказы не обрабатываются."
     )
     await message.answer_photo(photo, caption=text)
 
 @router.message(Command("setcontext"))
+@handle_errors
 async def cmd_setcontext(message: Message):
     if message.text and len(message.text.split(maxsplit=1)) > 1:
         new_context = message.text.split(maxsplit=1)[1]
         context_manager.save_context(new_context)
-        await message.answer("Контекст для консультаций обновлён! Теперь я буду учитывать новые инструкции от ТехноМаркет.")
+        await message.answer(CONTEXT_UPDATED_MSG)
     else:
-        await message.answer("Пожалуйста, укажите новый контекст после команды. Например: /setcontext Вы консультант по бытовой технике.")
+        await message.answer(CONTEXT_PROMPT_MSG)
 
 @router.message(Command("resetcontext"))
+@handle_errors
 async def cmd_resetcontext(message: Message):
     context_manager.reset_context()
-    await message.answer("Контекст сброшен к стандартному для ТехноМаркет. Я снова готов консультировать по товарам и услугам компании!")
+    await message.answer(CONTEXT_RESET_MSG)
 
 @router.message(F.text)
+@handle_errors
 async def handle_message(message: Message, state: FSMContext):
     # Проверяем текущее состояние FSM
     current_state = await state.get_state()
     if current_state:
         return  # Пусть обработку делает соответствующий handler
     user_message = message.text or ""
-    session = SessionLocal()
-    tg_user = message.from_user
-    if tg_user is None:
-        await message.answer("Ошибка: не удалось определить пользователя Telegram.")
-        return
-    user = get_or_create_user(
-        session,
-        telegram_id=str(tg_user.id),
-        username=tg_user.username,
-        first_name=tg_user.first_name,
-        last_name=tg_user.last_name
-    )
-    session.refresh(user)
-    user_id = user.id if isinstance(user.id, int) else user.id.value
+    session, user, user_id, extra = get_user_and_extra(message)
     save_message(session, user_id, "user", user_message)
     # Получаем историю для LLM
     history_limit = 5
@@ -167,9 +226,6 @@ async def handle_message(message: Message, state: FSMContext):
         f"{m.role}: {m.message}" for m in history
     ])
     # --- Сохраняем и объединяем параметры пользователя ---
-    extra = user.extra_data if isinstance(user.extra_data, dict) else {}
-    if not isinstance(extra, dict):
-        extra = {}
     saved_params = extra.get("search_params", {})
     context = f"{context_manager.get_context()}\n\nИстория общения:\n{history_text}"
     reply = await get_gpt_response(user_message, context)
@@ -351,7 +407,7 @@ async def handle_message(message: Message, state: FSMContext):
     # --- Обработка случая, когда не найдено ни одного товара даже после ослабления всех фильтров ---
     if not products:
         await message.answer(
-            "К сожалению, по вашему запросу ничего не найдено. Попробуйте изменить параметры поиска или увеличить бюджет."
+            "К сожалению, подходящих товаров не нашлось. Если хотите, помогу подобрать что-то похожее — просто напишите, что для вас важно, или попробуйте изменить запрос!"
         )
         session.close()
         return
@@ -385,25 +441,11 @@ async def handle_message(message: Message, state: FSMContext):
 
 # Обработка запроса фото товара
 @router.message(F.text.regexp(r"(?i)фото|картинка|photo|picture|покажи|show"))
+@handle_errors
 async def handle_any_photo_request(message: Message, state: FSMContext):
     """Обрабатывает запрос фото в любом состоянии: всегда отправляет реальное фото по image_url"""
     user_message = message.text or ""
-    session = SessionLocal()
-    tg_user = message.from_user
-    if tg_user is None:
-        await message.answer("Ошибка: не удалось определить пользователя Telegram.")
-        return
-    user = get_or_create_user(
-        session,
-        telegram_id=str(tg_user.id),
-        username=tg_user.username,
-        first_name=tg_user.first_name,
-        last_name=tg_user.last_name
-    )
-    session.refresh(user)
-    extra = user.extra_data if isinstance(user.extra_data, dict) else {}
-    if not isinstance(extra, dict):
-        extra = {}
+    session, user, _, extra = get_user_and_extra(message)
     # Сначала ищем current_product (выбранный товар)
     chosen = extra.get("current_product")
     # Если нет — берём первый из last_products
@@ -418,24 +460,10 @@ async def handle_any_photo_request(message: Message, state: FSMContext):
     session.close()
 
 @router.message(StateFilter(OrderStates.waiting_for_choice), F.text)
+@handle_errors
 async def handle_product_choice(message: Message, state: FSMContext):
     user_message = message.text or ""
-    session = SessionLocal()
-    tg_user = message.from_user
-    if tg_user is None:
-        await message.answer("Ошибка: не удалось определить пользователя Telegram.")
-        return
-    user = get_or_create_user(
-        session,
-        telegram_id=str(tg_user.id),
-        username=tg_user.username,
-        first_name=tg_user.first_name,
-        last_name=tg_user.last_name
-    )
-    session.refresh(user)
-    extra = user.extra_data if isinstance(user.extra_data, dict) else {}
-    if not isinstance(extra, dict):
-        extra = {}
+    session, user, user_id, extra = get_user_and_extra(message)
     last_products = extra.get("last_products", [])
     last_products_id = get_products_id(last_products) if last_products else None
     current_products_id = extra.get("current_product_list_id")
@@ -454,7 +482,6 @@ async def handle_product_choice(message: Message, state: FSMContext):
                 break
     if chosen:
         from aiogram.types import FSInputFile
-        from pathlib import Path
         file_path = Path.cwd() / chosen["image_url"]
         if file_path.exists():
             photo = FSInputFile(str(file_path))
@@ -473,29 +500,15 @@ async def handle_product_choice(message: Message, state: FSMContext):
     session.close()
 
 @router.message(StateFilter(OrderStates.product_card), F.text)
+@handle_errors
 async def handle_product_card(message: Message, state: FSMContext):
     """Обработчик для состояния карточки товара - отвечает на вопросы о выбранном товаре"""
     user_message = message.text or ""
-    session = SessionLocal()
-    tg_user = message.from_user
-    if tg_user is None:
-        await message.answer("Ошибка: не удалось определить пользователя Telegram.")
-        return
-    user = get_or_create_user(
-        session,
-        telegram_id=str(tg_user.id),
-        username=tg_user.username,
-        first_name=tg_user.first_name,
-        last_name=tg_user.last_name
-    )
-    session.refresh(user)
-    extra = user.extra_data if isinstance(user.extra_data, dict) else {}
-    if not isinstance(extra, dict):
-        extra = {}
+    session, user, _, extra = get_user_and_extra(message)
     current_product = extra.get("current_product")
     
     if not current_product:
-        await message.answer("Извините, не удалось найти информацию о выбранном товаре. Попробуйте выбрать товар заново или уточните ваш запрос. Например: 'покажи список телефонов', 'покажи Samsung'.")
+        await message.answer(PRODUCT_NOT_FOUND_MSG)
         await state.clear()
         session.close()
         return
@@ -507,13 +520,12 @@ async def handle_product_card(message: Message, state: FSMContext):
     if any(word in user_message_lower for word in ["фото", "картинка", "photo", "picture", "покажи", "show"]):
         if current_product["image_url"].startswith("images/"):
             from aiogram.types import FSInputFile
-            from pathlib import Path
             file_path = Path.cwd() / current_product["image_url"]
             if file_path.exists():
                 photo = FSInputFile(str(file_path))
                 await message.answer_photo(photo, caption=current_product["name"])
             else:
-                await message.answer(f"Фото товара {current_product['name']} временно недоступно.")
+                await message.answer(PHOTO_NOT_FOUND_MSG.format(name=current_product["name"]))
         else:
             await message.answer_photo(current_product["image_url"], caption=current_product["name"])
     
@@ -531,7 +543,7 @@ async def handle_product_card(message: Message, state: FSMContext):
             f"🛒 Оформление заказа на {current_product['name']}\n\n"
             f"Для оформления заказа свяжитесь с нашим менеджером:\n"
             f"📞 Телефон: +7 (800) 555-0123\n"
-            f"📧 Email: order@technomarket.ru\n"
+            f"�� Email: order@technomarket.ru\n"
             f"💬 Telegram: @technomarket_support\n\n"
             f"Или оставьте свой номер телефона, и мы перезвоним вам в течение 15 минут."
         )
@@ -539,7 +551,7 @@ async def handle_product_card(message: Message, state: FSMContext):
     
     # Возврат к списку товаров
     elif any(word in user_message_lower for word in ["назад", "список", "другие", "еще", "back", "list", "other", "more"]):
-        await message.answer("Возвращаюсь к списку товаров. Выберите другой товар или уточните параметры поиска.")
+        await message.answer(CHOOSE_ANOTHER_MSG)
         await state.clear()
     
     # Общие вопросы о товаре
@@ -557,7 +569,7 @@ async def handle_product_card(message: Message, state: FSMContext):
         
         reply = await get_gpt_response(user_message, context)
         if not reply or not reply.strip():
-            await message.answer("Извините, я не смог найти ответ на ваш вопрос. Пожалуйста, уточните, что именно вас интересует, или попробуйте переформулировать запрос. Например: 'характеристики', 'цена', 'фото'.")
+            await message.answer(NO_ANSWER_MSG)
         else:
             await message.answer(reply)
     
