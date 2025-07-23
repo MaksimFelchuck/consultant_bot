@@ -96,12 +96,19 @@ class ProductCharacteristics:
 
     def has_characteristics(self, ignore_words):
         """Проверяет наличие характеристик для поиска товаров."""
-        return any(
+        result = any(
             k in self.characteristics_only
             and self.characteristics_only[k]
             and self.characteristics_only[k] not in ignore_words
             for k in self.KEY_PARAMS
         )
+        logging.info(f"[DEBUG] has_characteristics: проверяем {self.KEY_PARAMS}")
+        logging.info(
+            f"[DEBUG] has_characteristics: characteristics_only = {self.characteristics_only}"
+        )
+        logging.info(f"[DEBUG] has_characteristics: ignore_words = {ignore_words}")
+        logging.info(f"[DEBUG] has_characteristics: результат = {result}")
+        return result
 
     def get_characteristics(self, ignore_words: list[str]) -> list[str]:
         """Возвращает список найденных характеристик."""

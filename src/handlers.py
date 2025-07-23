@@ -133,6 +133,16 @@ async def handle_message(message: Message, state: FSMContext):
         [ProductCharacteristics.CATEGORY_KEY, *IgnoreWords.WORDS]
     )
 
+    # Отладочная информация
+    logging.info(f"[DEBUG] Параметры: {params}")
+    logging.info(
+        f"[DEBUG] Характеристики только: {characteristics.characteristics_only}"
+    )
+    logging.info(
+        f"[DEBUG] Игнорируемые слова: {[ProductCharacteristics.CATEGORY_KEY, *IgnoreWords.WORDS]}"
+    )
+    logging.info(f"[DEBUG] Есть характеристики: {has_characteristics}")
+
     category_obj = None
 
     if (
