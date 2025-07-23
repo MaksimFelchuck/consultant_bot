@@ -1,6 +1,6 @@
 # Импортируйте Base и все модели из этого пакета для Alembic и других частей приложения
 from .base import Base
-from .user import User
-from .product import Product
+from .category import Category
 from .message import Message
-from .category import Category 
+from .product import Product
+from .user import User

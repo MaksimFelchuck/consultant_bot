@@ -1,16 +1,21 @@
+import sys
 from logging.config import fileConfig
-
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
+from pathlib import Path
 
 from alembic import context
+from sqlalchemy import engine_from_config, pool
 
-import sys
-from pathlib import Path
-sys.path.append(str(Path(__file__).resolve().parent.parent.parent))  # добавляем src в PYTHONPATH
-from src.database.models import Base, User, Product, Message  # импортируем Base и все модели
-
+sys.path.append(
+    str(Path(__file__).resolve().parent.parent.parent)
+)  # добавляем src в PYTHONPATH
 import os
+
+from src.database.models import (  # импортируем Base и все модели
+    Base,
+    Message,
+    Product,
+    User,
+)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -23,7 +28,9 @@ if ENV == "DEV":
 elif ENV == "PROD":
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
-        raise ValueError("Для PROD окружения требуется переменная окружения DATABASE_URL")
+        raise ValueError(
+            "Для PROD окружения требуется переменная окружения DATABASE_URL"
+        )
 else:
     raise ValueError(f"Неизвестное окружение ENV={ENV}. Используйте 'DEV' или 'PROD'.")
 config.set_main_option("sqlalchemy.url", db_url)
@@ -83,9 +90,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

@@ -71,11 +71,11 @@ def get_user_and_extra(message):
     """Получает пользователя и дополнительные данные."""
     session = SessionLocal()
     user = get_or_create_user(
-        session, 
-        message.from_user.id, 
-        message.from_user.username, 
-        message.from_user.first_name, 
-        message.from_user.last_name
+        session,
+        message.from_user.id,
+        message.from_user.username,
+        message.from_user.first_name,
+        message.from_user.last_name,
     )
     user_id = user.id
     extra = json.loads(user.extra_data) if user.extra_data else {}
@@ -92,16 +92,19 @@ def format_products_list(products):
     """Форматирует список продуктов."""
     if not products:
         return "К сожалению, товары не найдены."
-    
+
     result = []
     for idx, product in enumerate(products, 1):
-        result.append(f"{idx}. {product.name} — {product.price}₽\n{product.description}")
-    
+        result.append(
+            f"{idx}. {product.name} — {product.price}₽\n{product.description}"
+        )
+
     return "\n\n".join(result)
 
 
 def handle_errors(func):
     """Декоратор для обработки ошибок в обработчиках."""
+
     async def wrapper(*args, **kwargs):
         try:
             return await func(*args, **kwargs)
@@ -114,23 +117,24 @@ def handle_errors(func):
                     return await func(args[0])  # Передаем только message
             except Exception:
                 pass
+
     return wrapper
 
 
 class MessageHandler:
     """Обработчик сообщений с современными паттернами проектирования."""
-    
+
     def __init__(self):
         self.router = Router()
-    
+
     def get_user_and_extra(self, message):
         """Получает пользователя и дополнительные данные."""
         return get_user_and_extra(message)
-    
+
     def save_user_data(self, session, user, extra):
         """Сохраняет данные пользователя."""
         save_user_data(session, user, extra)
-    
+
     def format_products_list(self, products):
         """Форматирует список продуктов."""
-        return format_products_list(products) 
+        return format_products_list(products)

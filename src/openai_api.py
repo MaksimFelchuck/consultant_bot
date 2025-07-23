@@ -1,8 +1,10 @@
-import openai
-import logging
 import json
+import logging
 import os
-from config import OPENAI_API_KEY, GROQ_API_KEY
+
+import openai
+
+from config import GROQ_API_KEY, OPENAI_API_KEY
 from context import context_manager
 
 if OPENAI_API_KEY:
@@ -17,17 +19,27 @@ else:
     raise RuntimeError("Не найден ни один API-ключ: ни OPENAI_API_KEY, ни GROQ_API_KEY")
 
 logging.basicConfig(level=logging.ERROR)
-logging.warning(f"[AI Provider] Выбран: {_current_provider}, endpoint: {openai.api_base}")
+logging.warning(
+    f"[AI Provider] Выбран: {_current_provider}, endpoint: {openai.api_base}"
+)
+
 
 async def check_openai_account():
     try:
         models = await openai.Model.alist()
-        logging.info(f"[{_current_provider}] API-ключ начинается с: {str(openai.api_key)[:8]}... (скрыто)")
-        logging.info(f"[{_current_provider}] Тип ответа models: {type(models)}; Пример содержимого: {str(models)[:200]}")
+        logging.info(
+            f"[{_current_provider}] API-ключ начинается с: {str(openai.api_key)[:8]}... (скрыто)"
+        )
+        logging.info(
+            f"[{_current_provider}] Тип ответа models: {type(models)}; Пример содержимого: {str(models)[:200]}"
+        )
     except Exception as e:
         logging.error(f"[{_current_provider}] Ошибка проверки аккаунта: {e}")
 
-async def get_gpt_response(user_message: str, context: str = "", model: str | None = None):
+
+async def get_gpt_response(
+    user_message: str, context: str = "", model: str | None = None
+):
     if not context:
         context = context_manager.get_context()
     # Выбор модели по провайдеру
@@ -43,15 +55,13 @@ async def get_gpt_response(user_message: str, context: str = "", model: str | No
             model=model,
             messages=[
                 {"role": "system", "content": context},
-                {"role": "user", "content": user_message}
-            ]
+                {"role": "user", "content": user_message},
+            ],
         )
         # Универсальное приведение к dict
         if isinstance(response, str):
             response = json.loads(response)
-        return response['choices'][0]['message']['content']  # type: ignore
+        return response["choices"][0]["message"]["content"]  # type: ignore
     except Exception as e:
         logging.error(f"{_current_provider} API error: {e}")
         return "Извините, не удалось получить ответ от ассистента."
-
- 
