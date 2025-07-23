@@ -107,7 +107,13 @@ def handle_errors(func):
             return await func(*args, **kwargs)
         except Exception as e:
             logging.error(f"[{func.__name__}] Ошибка: {e}")
-            # Не возвращаем None, чтобы aiogram мог обработать ошибку
+            # Пропускаем неожиданные аргументы
+            try:
+                # Пытаемся вызвать функцию только с нужными аргументами
+                if args:
+                    return await func(args[0])  # Передаем только message
+            except Exception:
+                pass
     return wrapper
 
 
