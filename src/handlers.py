@@ -29,6 +29,7 @@ from utils import (
     get_products_id,
     handle_errors,
 )
+from characteristics import ProductCharacteristics
 
 router = Router()
 
@@ -121,71 +122,65 @@ async def handle_message(message: Message, state: FSMContext):
                 if v and v not in IgnoreWords.WORDS:
                     params[k] = v
 
-    extra["search_params"] = params
+    extra[ProductCharacteristics.SEARCH_PARAMS_KEY] = params
     user_repo.update_extra_data(user, extra)
 
-    KEY_PARAMS = [
-        "цена",
-        "бюджет",
-        "бренд",
-        "цвет",
-        "характеристики",
-        "размер",
-        "модель",
-        "объём",
-        "оперативная память",
-        "экран",
-        "тип",
-    ]
-    # Проверяем наличие характеристик (исключая категорию)
-    has_characteristics = any(
-        k in params and params[k] and params[k] not in IgnoreWords.WORDS
-        for k in KEY_PARAMS
-    )
-
-    if not has_characteristics:
-        # Если нет характеристик, просим уточнить параметры
-        clarification_message = (
-            "Для подбора товара мне нужна дополнительная информация. "
-            "Пожалуйста, укажите:\n\n"
-            "• Бюджет (например: до 50000 рублей)\n"
-            "• Бренд (например: Samsung, Apple, Xiaomi)\n"
-            "• Цвет (например: черный, белый)\n"
-            "• Другие важные характеристики\n\n"
-            "Или просто опишите, что именно вы ищете!"
-        )
-        await message.answer(clarification_message)
-        return
+    # Используем класс для управления характеристиками
+    characteristics = ProductCharacteristics(params)
+    has_characteristics = characteristics.has_characteristics(IgnoreWords.WORDS)
 
     category_obj = None
 
     if (
-        "категория" not in params
-        or not params["категория"]
-        or any(w in params["категория"] for w in IgnoreWords.WORDS)
+        ProductCharacteristics.CATEGORY_KEY not in params
+        or not params[ProductCharacteristics.CATEGORY_KEY]
+        or any(
+            w in params[ProductCharacteristics.CATEGORY_KEY] for w in IgnoreWords.WORDS
+        )
     ):
-        last_category = extra.get("last_category")
+        last_category = extra.get(ProductCharacteristics.LAST_CATEGORY_KEY)
         if last_category:
-            params["категория"] = last_category
+            params[ProductCharacteristics.CATEGORY_KEY] = last_category
         else:
             cat_from_history = get_category_by_keywords(history_text)
             if cat_from_history:
-                params["категория"] = cat_from_history[0]
-                extra["last_category"] = cat_from_history[0]
+                params[ProductCharacteristics.CATEGORY_KEY] = cat_from_history[0]
+                extra[ProductCharacteristics.LAST_CATEGORY_KEY] = cat_from_history[0]
 
-    if "категория" in params and not any(
-        w in params["категория"] for w in IgnoreWords.WORDS
+    if ProductCharacteristics.CATEGORY_KEY in params and not any(
+        w in params[ProductCharacteristics.CATEGORY_KEY] for w in IgnoreWords.WORDS
     ):
-        category_obj = category_repo.get_by_name(params["категория"])
+        category_obj = category_repo.get_by_name(
+            params[ProductCharacteristics.CATEGORY_KEY]
+        )
         if category_obj:
-            extra["last_category"] = category_obj.name
+            extra[ProductCharacteristics.LAST_CATEGORY_KEY] = category_obj.name
             user_repo.update_extra_data(user, extra)
+
+    if not has_characteristics:
+        # Если нет характеристик, просим уточнить параметры
+        category_name = (
+            category_obj.name
+            if category_obj
+            else ProductCharacteristics.DEFAULT_CATEGORY_NAME
+        )
+        clarification_message = ProductCharacteristics.get_clarification_message(
+            category_name
+        )
+        await message.answer(clarification_message)
+        return
 
     filters = {"color": [], "brand": [], "spec": [], "price": []}
 
-    if "цвет" in params and not any(w in params["цвет"] for w in IgnoreWords.WORDS):
+    if ProductCharacteristics.COLOR_FILTER_KEY in params and not any(
+        w in params[ProductCharacteristics.COLOR_FILTER_KEY] for w in IgnoreWords.WORDS
+    ):
         colors = [
-            c.strip() for c in re.split(r"[,/]| или | or ", params["цвет"]) if c.strip()
+            c.strip()
+            for c in re.split(
+                r"[,/]| или | or ", params[ProductCharacteristics.COLOR_FILTER_KEY]
+            )
+            if c.strip()
         ]
         if colors:
             from database.models import Product
@@ -198,12 +193,16 @@ async def handle_message(message: Message, state: FSMContext):
                 for color in colors
             ]
 
-    if "бренд" in params and not any(w in params["бренд"] for w in IgnoreWords.WORDS):
+    if ProductCharacteristics.BRAND_FILTER_KEY in params and not any(
+        w in params[ProductCharacteristics.BRAND_FILTER_KEY] for w in IgnoreWords.WORDS
+    ):
         brands = []
         for group, group_brands in BrandGroups.get_all_brands().items():
-            if group in params["бренд"]:
+            if group in params[ProductCharacteristics.BRAND_FILTER_KEY]:
                 brands.extend(group_brands)
-        for b in re.split(r"[,/]| или | or ", params["бренд"]):
+        for b in re.split(
+            r"[,/]| или | or ", params[ProductCharacteristics.BRAND_FILTER_KEY]
+        ):
             b = b.strip()
             if b and b not in brands:
                 brands.append(b.capitalize())
@@ -233,15 +232,27 @@ async def handle_message(message: Message, state: FSMContext):
                 Product.description.ilike(f"%{params['характеристики']}%")
             )
 
-    if "тип" in params and not any(w in params["тип"] for w in IgnoreWords.WORDS):
+    if ProductCharacteristics.TYPE_FILTER_KEY in params and not any(
+        w in params[ProductCharacteristics.TYPE_FILTER_KEY] for w in IgnoreWords.WORDS
+    ):
         from database.models import Product
 
-        filters["spec"].append(Product.name.ilike(f"%{params['тип']}%"))
-        filters["spec"].append(Product.description.ilike(f"%{params['тип']}%"))
+        filters["spec"].append(
+            Product.name.ilike(f"%{params[ProductCharacteristics.TYPE_FILTER_KEY]}%")
+        )
+        filters["spec"].append(
+            Product.description.ilike(
+                f"%{params[ProductCharacteristics.TYPE_FILTER_KEY]}%"
+            )
+        )
 
-    if "цена" in params and not any(w in params["цена"] for w in IgnoreWords.WORDS):
+    if ProductCharacteristics.PRICE_FILTER_KEY in params and not any(
+        w in params[ProductCharacteristics.PRICE_FILTER_KEY] for w in IgnoreWords.WORDS
+    ):
         try:
-            price = int(re.sub(r"\D", "", params["цена"]))
+            price = int(
+                re.sub(r"\D", "", params[ProductCharacteristics.PRICE_FILTER_KEY])
+            )
             from database.models import Product
 
             filters["price"] = [Product.price <= price]
@@ -443,8 +454,7 @@ async def handle_product_card(message: Message, state: FSMContext):
     user_message_lower = user_message.lower()
 
     if any(
-        word in user_message_lower
-        for word in ["фото", "картинка", "photo", "picture", "покажи", "show"]
+        word in user_message_lower for word in ProductCharacteristics.PHOTO_KEYWORDS
     ):
         if current_product["image_url"].startswith("images/"):
             file_path = Path.cwd() / current_product["image_url"]
@@ -461,40 +471,21 @@ async def handle_product_card(message: Message, state: FSMContext):
             )
 
     elif any(
-        word in user_message_lower
-        for word in [
-            "характеристики",
-            "характеристика",
-            "описание",
-            "подробности",
-            "детали",
-            "specs",
-            "specifications",
-        ]
+        word in user_message_lower for word in ProductCharacteristics.SPECS_KEYWORDS
     ):
         await message.answer(
             f"📋 Характеристики {current_product['name']}:\n\n{current_product['desc']}\n\n💰 Цена: {current_product['price']}₽"
         )
 
     elif any(
-        word in user_message_lower
-        for word in ["цена", "стоимость", "price", "cost", "сколько стоит"]
+        word in user_message_lower for word in ProductCharacteristics.PRICE_KEYWORDS
     ):
         await message.answer(
             f"💰 Цена {current_product['name']}: {current_product['price']}₽"
         )
 
     elif any(
-        word in user_message_lower
-        for word in [
-            "заказ",
-            "купить",
-            "приобрести",
-            "оформить",
-            "order",
-            "buy",
-            "purchase",
-        ]
+        word in user_message_lower for word in ProductCharacteristics.ORDER_KEYWORDS
     ):
         await message.answer(
             f"🛒 Оформление заказа на {current_product['name']}\n\n"
@@ -507,17 +498,7 @@ async def handle_product_card(message: Message, state: FSMContext):
         await state.set_state(OrderStates.waiting_for_contact)
 
     elif any(
-        word in user_message_lower
-        for word in [
-            "назад",
-            "список",
-            "другие",
-            "еще",
-            "back",
-            "list",
-            "other",
-            "more",
-        ]
+        word in user_message_lower for word in ProductCharacteristics.BACK_KEYWORDS
     ):
         await message.answer(Messages.CHOOSE_ANOTHER)
         await state.clear()
