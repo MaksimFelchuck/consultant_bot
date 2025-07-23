@@ -104,16 +104,25 @@ def handle_errors(func):
 
     async def wrapper(*args, **kwargs):
         try:
-            return await func(*args, **kwargs)
+            # Фильтруем kwargs, оставляя только те, которые принимает функция
+            import inspect
+
+            sig = inspect.signature(func)
+            valid_kwargs = {}
+
+            for param_name, param in sig.parameters.items():
+                if param_name in kwargs:
+                    valid_kwargs[param_name] = kwargs[param_name]
+
+            return await func(*args, **valid_kwargs)
         except Exception as e:
             logging.error(f"[{func.__name__}] Ошибка: {e}")
-            # Пропускаем неожиданные аргументы
-            try:
-                # Пытаемся вызвать функцию только с нужными аргументами
-                if args:
-                    return await func(args[0])  # Передаем только message
-            except Exception:
-                pass
+            # Можно добавить отправку сообщения пользователю об ошибке
+            if args and hasattr(args[0], "answer"):
+                try:
+                    await args[0].answer("Произошла ошибка. Попробуйте еще раз.")
+                except:
+                    pass
 
     return wrapper
 
