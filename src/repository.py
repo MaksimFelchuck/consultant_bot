@@ -108,12 +108,18 @@ class UserRepository(BaseRepository):
         last_name: Optional[str] = None
     ) -> User:
         """Получает или создает пользователя."""
+        kwargs = {}
+        if username:
+            kwargs['username'] = username
+        if first_name:
+            kwargs['first_name'] = first_name
+        if last_name:
+            kwargs['last_name'] = last_name
+        
         return get_or_create_user(
             self.session,
-            telegram_id,
-            username,
-            first_name,
-            last_name
+            str(telegram_id),
+            **kwargs
         )
     
     def update_extra_data(self, user: User, extra_data: Dict[str, Any]):
