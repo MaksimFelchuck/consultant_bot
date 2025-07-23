@@ -30,16 +30,4 @@ class ContextManager:
     def get_context(self):
         return self.context
 
-def format_products_for_context(products_by_category: dict) -> str:
-    """
-    Формирует текст для ассистента с ассортиментом: по категориям, кратко.
-    products_by_category: {category_name: [Product, ...], ...}
-    """
-    lines = ["Актуальный ассортимент ТехноМаркет:"]
-    for cat, products in products_by_category.items():
-        lines.append(f"\nКатегория: {cat}")
-        for p in products:
-            lines.append(f"- {p.name} — {p.price}₽. {p.description[:60]}...")
-    return "\n".join(lines)
-
 context_manager = ContextManager() 

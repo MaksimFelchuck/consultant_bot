@@ -9,7 +9,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from config import BOT_TOKEN
 from handlers import router
-from openai_api import check_openai_account
+
 
 async def main():
     # await check_openai_account()

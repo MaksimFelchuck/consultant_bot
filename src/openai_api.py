@@ -54,21 +54,4 @@ async def get_gpt_response(user_message: str, context: str = "", model: str | No
         logging.error(f"{_current_provider} API error: {e}")
         return "Извините, не удалось получить ответ от ассистента."
 
-async def get_category_by_llm(user_message: str) -> str:
-    """
-    Определяет категорию товара из запроса пользователя через LLM.
-    Возвращает строку: название категории (например, 'Смартфоны', 'Ноутбуки', ...)
-    """
-    prompt = (
-        "Пользователь написал: '" + user_message + "'. "
-        "Определи, к какой из этих категорий относится его запрос: "
-        "Смартфоны, Планшеты, Ноутбуки, Телевизоры, Наушники, Смарт-часы, Фотоаппараты, Игровые приставки, Мониторы, Аксессуары. "
-        "Ответь только одним словом — названием категории из списка. Если не удалось определить, напиши 'Неизвестно'."
-    )
-    try:
-        response = await get_gpt_response(user_message, prompt)
-        category = response.strip().split()[0]
-        # Приводим к формату с большой буквы
-        return category.capitalize()
-    except Exception:
-        return "Неизвестно" 
+ 
