@@ -76,7 +76,7 @@ def get_user_and_extra(message):
         message.from_user.last_name,
     )
     user_id = user.id
-    extra = json.loads(user.extra_data) if user.extra_data else {}
+    extra = user.extra_data if user.extra_data else {}
     return None, user, user_id, extra
 
 

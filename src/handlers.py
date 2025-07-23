@@ -92,7 +92,7 @@ async def handle_message(message: Message, state: FSMContext):
         message.from_user.last_name,
     )
     user_id = user.id
-    extra = json.loads(user.extra_data) if user.extra_data else {}
+    extra = user.extra_data if user.extra_data else {}
 
     message_repo.save_message(user_id, "user", user_message)
 
@@ -306,7 +306,7 @@ async def handle_any_photo_request(message: Message, state: FSMContext):
         message.from_user.first_name,
         message.from_user.last_name,
     )
-    extra = json.loads(user.extra_data) if user.extra_data else {}
+    extra = user.extra_data if user.extra_data else {}
 
     last_products = extra.get("last_products", [])
     if not last_products:
@@ -372,7 +372,7 @@ async def handle_product_choice(message: Message, state: FSMContext):
         message.from_user.first_name,
         message.from_user.last_name,
     )
-    extra = json.loads(user.extra_data) if user.extra_data else {}
+    extra = user.extra_data if user.extra_data else {}
 
     last_products = extra.get("last_products", [])
     if not last_products:
@@ -430,7 +430,7 @@ async def handle_product_card(message: Message, state: FSMContext):
         message.from_user.first_name,
         message.from_user.last_name,
     )
-    extra = json.loads(user.extra_data) if user.extra_data else {}
+    extra = user.extra_data if user.extra_data else {}
     current_product = extra.get("current_product")
 
     if not current_product:
