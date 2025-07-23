@@ -133,8 +133,6 @@ async def handle_message(message: Message, state: FSMContext):
         [ProductCharacteristics.CATEGORY_KEY, *IgnoreWords.WORDS]
     )
 
-    category_obj = None
-
     if (
         ProductCharacteristics.CATEGORY_KEY not in params
         or not params[ProductCharacteristics.CATEGORY_KEY]
@@ -151,7 +149,7 @@ async def handle_message(message: Message, state: FSMContext):
                 params[ProductCharacteristics.CATEGORY_KEY] = cat_from_history[0]
                 extra[ProductCharacteristics.LAST_CATEGORY_KEY] = cat_from_history[0]
 
-    if ProductCharacteristics.CATEGORY_KEY in params and not any(
+    elif ProductCharacteristics.CATEGORY_KEY in params and not any(
         w in params[ProductCharacteristics.CATEGORY_KEY] for w in IgnoreWords.WORDS
     ):
         category_obj = category_repo.get_by_name(
@@ -160,6 +158,8 @@ async def handle_message(message: Message, state: FSMContext):
         if category_obj:
             extra[ProductCharacteristics.LAST_CATEGORY_KEY] = category_obj.name
             user_repo.update_extra_data(user, extra)
+    else:
+        category_obj = None
 
     if not has_characteristics:
         # Если нет характеристик, просим уточнить параметры
