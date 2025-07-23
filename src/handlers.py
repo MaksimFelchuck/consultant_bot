@@ -84,6 +84,7 @@ async def handle_message(message: Message, state: FSMContext):
         return
 
     user_message = message.text or ""
+
     user = user_repo.get_or_create(
         message.from_user.id,
         message.from_user.username,

@@ -3,6 +3,7 @@ Repository паттерн для работы с базой данных.
 Современный подход к абстракции доступа к данным.
 """
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func, or_
@@ -11,12 +12,14 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from database.models import Category, Message, Product, User
 
+logger = logging.getLogger(__name__)
+
 
 class BaseRepository:
     """Базовый класс для всех репозиториев."""
 
-    def __init__(self):
-        self._session: Optional[Session] = None
+    def __init__(self, session: Optional[Session] = None):
+        self._session = session
 
     @property
     def session(self) -> Session:
@@ -25,11 +28,19 @@ class BaseRepository:
             self._session = SessionLocal()
         return self._session
 
+    def set_session(self, session: Session):
+        """Устанавливает сессию БД."""
+        self._session = session
+
     def close(self):
         """Закрывает сессию БД."""
         if self._session:
-            self._session.close()
-            self._session = None
+            try:
+                self._session.close()
+            except Exception:
+                pass
+            finally:
+                self._session = None
 
 
 class CategoryRepository(BaseRepository):
@@ -148,17 +159,11 @@ class UserRepository(BaseRepository):
         last_name: Optional[str] = None,
     ) -> User:
         """Получает или создает пользователя."""
-        user = (
-            self.session.query(User)
-            .filter_by(
-                telegram_id=telegram_id,
-                username=username,
-                first_name=first_name,
-                last_name=last_name,
-            )
-            .first()
-        )
+        # Ищем пользователя только по telegram_id
+        user = self.session.query(User).filter_by(telegram_id=telegram_id).first()
+
         if not user:
+            # Создаем нового пользователя
             user = User(
                 telegram_id=telegram_id,
                 username=username,
@@ -167,6 +172,18 @@ class UserRepository(BaseRepository):
             )
             self.session.add(user)
             self.session.commit()
+        else:
+            # Обновляем существующего пользователя, если данные изменились
+            if (
+                user.username != username
+                or user.first_name != first_name
+                or user.last_name != last_name
+            ):
+                user.username = username
+                user.first_name = first_name
+                user.last_name = last_name
+                self.session.commit()
+
         return user
 
     def update_extra_data(self, user: User, extra_data: Dict[str, Any]):
@@ -262,6 +279,90 @@ class SearchService:
                 return products, ["цвет", "бренд", "характеристики", "цена"]
 
         return [], ["цвет", "бренд", "характеристики", "цена"]
+
+
+class RepositoryFactory:
+    """Фабрика для создания репозиториев с общей сессией."""
+
+    def __init__(self, session: Optional[Session] = None):
+        self._session = session or SessionLocal()
+        self._repos = {}
+
+    def get_category_repo(self) -> CategoryRepository:
+        if "category" not in self._repos:
+            repo = CategoryRepository(self._session)
+            self._repos["category"] = repo
+        return self._repos["category"]
+
+    def get_product_repo(self) -> ProductRepository:
+        if "product" not in self._repos:
+            repo = ProductRepository(self._session)
+            self._repos["product"] = repo
+        return self._repos["product"]
+
+    def get_user_repo(self) -> UserRepository:
+        if "user" not in self._repos:
+            repo = UserRepository(self._session)
+            self._repos["user"] = repo
+        return self._repos["user"]
+
+    def get_message_repo(self) -> MessageRepository:
+        if "message" not in self._repos:
+            repo = MessageRepository(self._session)
+            self._repos["message"] = repo
+        return self._repos["message"]
+
+    def get_search_service(self) -> SearchService:
+        if "search" not in self._repos:
+            service = SearchService(self.get_product_repo())
+            self._repos["search"] = service
+        return self._repos["search"]
+
+    def commit(self):
+        """Коммитит все изменения."""
+        self._session.commit()
+
+    def rollback(self):
+        """Откатывает все изменения."""
+        self._session.rollback()
+
+    def close(self):
+        """Закрывает сессию."""
+        self._session.close()
+
+
+class RepositoryManager:
+    """Менеджер для работы с репозиториями."""
+
+    def __init__(self):
+        self._factory: Optional[RepositoryFactory] = None
+
+    def get_factory(self) -> RepositoryFactory:
+        """Получает фабрику репозиториев."""
+        if self._factory is None:
+            self._factory = RepositoryFactory()
+        return self._factory
+
+    def transaction(self):
+        """Контекстный менеджер для транзакций."""
+        return TransactionContext(self.get_factory())
+
+
+class TransactionContext:
+    """Контекстный менеджер для транзакций."""
+
+    def __init__(self, factory: RepositoryFactory):
+        self.factory = factory
+
+    def __enter__(self):
+        return self.factory
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            self.factory.rollback()
+        else:
+            self.factory.commit()
+        self.factory.close()
 
 
 # Глобальные экземпляры репозиториев
