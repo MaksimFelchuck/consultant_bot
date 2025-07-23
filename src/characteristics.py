@@ -26,18 +26,6 @@ class ProductCharacteristics:
     LAST_CATEGORY_KEY = "last_category"
     SEARCH_PARAMS_KEY = "search_params"
 
-    # Сообщения для пользователя
-    DEFAULT_CATEGORY_NAME = "товарами"
-    CLARIFICATION_MESSAGE_TEMPLATE = (
-        "Вижу, что вы интересуетесь категорией {category_name}. "
-        "Для подбора товара мне нужна хотя бы одна характеристика:\n\n"
-        "• Бюджет (например: до 50000 рублей)\n"
-        "• Бренд (например: Samsung, Apple, Xiaomi)\n"
-        "• Цвет (например: черный, белый)\n"
-        "• Размер, модель или другие характеристики\n\n"
-        "Укажите хотя бы одну характеристику, и я подберу подходящие товары!"
-    )
-
     # Ключи для фильтров
     COLOR_FILTER_KEY = "цвет"
     BRAND_FILTER_KEY = "бренд"
@@ -102,12 +90,6 @@ class ProductCharacteristics:
             and self.characteristics_only[k] not in ignore_words
             for k in self.KEY_PARAMS
         )
-        logging.info(f"[DEBUG] has_characteristics: проверяем {self.KEY_PARAMS}")
-        logging.info(
-            f"[DEBUG] has_characteristics: characteristics_only = {self.characteristics_only}"
-        )
-        logging.info(f"[DEBUG] has_characteristics: ignore_words = {ignore_words}")
-        logging.info(f"[DEBUG] has_characteristics: результат = {result}")
         return result
 
     def get_characteristics(self, ignore_words: list[str]) -> list[str]:
@@ -127,10 +109,3 @@ class ProductCharacteristics:
     def get_characteristics_dict(self) -> dict[str, any]:
         """Возвращает словарь только с характеристиками."""
         return self.characteristics_only.copy()
-
-    @classmethod
-    def get_clarification_message(cls, category_name: str) -> str:
-        """Возвращает сообщение для уточнения характеристик."""
-        return cls.CLARIFICATION_MESSAGE_TEMPLATE.format(
-            category_name=category_name or cls.DEFAULT_CATEGORY_NAME
-        )

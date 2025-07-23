@@ -28,8 +28,12 @@ from utils import (
     get_category_by_keywords,
     get_products_id,
     handle_errors,
+    parse_search_params_from_ai_response,
+    build_search_filters,
+    clean_ai_response,
 )
 from characteristics import ProductCharacteristics
+from config import HISTORY_LIMIT
 
 router = Router()
 
@@ -97,186 +101,60 @@ async def handle_message(message: Message, state: FSMContext):
 
     message_repo.save_message(user_id, "user", user_message)
 
-    history_limit = 5
-    history = message_repo.get_user_history(user_id, limit=history_limit)
+    history = message_repo.get_user_history(user_id, limit=HISTORY_LIMIT)
     history_text = "\n".join([f"{m.role}: {m.message}" for m in history])
 
     saved_params = extra.get("search_params", {})
-    context = f"{context_manager.get_context()}\n\nИстория общения:\n{history_text}"
+    last_category = extra.get("last_category")
+
+    # Первое сообщение
+    context = context_manager.get_context_with_addition(
+        f"История общения:\n{history_text}"
+    )
     reply = await get_gpt_response(user_message, context)
     message_repo.save_message(user_id, "assistant", reply)
 
-    search_params = None
-    for line in reply.splitlines():
-        if line.strip().lower().startswith(ProductCharacteristics.SEARCH_PARAMS_PREFIX):
-            search_params = line.strip()[
-                len(ProductCharacteristics.SEARCH_PARAMS_PREFIX) :
-            ].strip()
-            break
+    params = parse_search_params_from_ai_response(reply, saved_params)
+    category_name = params.pop(ProductCharacteristics.CATEGORY_KEY, None)
+    if not params:
+        context = f"""{context}\nПользователь не ввёл никаких характеристик, пытайся вежливо у него их уточнить.
+Если выяснили категорию, и пользователь пишет, что ему не важны характеристики, подбери характеристики популярных моделей сам.
+Если категории в характеристиках нету, то вежливо уточни какая категория его интересует."""
 
-    params = dict(saved_params) if saved_params else {}
-    if search_params:
-        for part in search_params.split(","):
-            if "=" in part:
-                k, v = part.split("=", 1)
-                k = k.strip().lower()
-                v = v.strip().lower()
-                if v and v not in IgnoreWords.WORDS:
-                    params[k] = v
-
-    extra[ProductCharacteristics.SEARCH_PARAMS_KEY] = params
-    user_repo.update_extra_data(user, extra)
-
-    # Используем класс для управления характеристиками
-    characteristics = ProductCharacteristics(params)
-    has_characteristics = characteristics.has_characteristics(
-        [ProductCharacteristics.CATEGORY_KEY, *IgnoreWords.WORDS]
-    )
-
-    # Отладочная информация
-    logging.info(f"[DEBUG] Параметры: {params}")
-    logging.info(
-        f"[DEBUG] Характеристики только: {characteristics.characteristics_only}"
-    )
-    logging.info(
-        f"[DEBUG] Игнорируемые слова: {[ProductCharacteristics.CATEGORY_KEY, *IgnoreWords.WORDS]}"
-    )
-    logging.info(f"[DEBUG] Есть характеристики: {has_characteristics}")
-
-    category_obj = None
-
-    if (
-        ProductCharacteristics.CATEGORY_KEY not in params
-        or not params[ProductCharacteristics.CATEGORY_KEY]
-        or any(
-            w in params[ProductCharacteristics.CATEGORY_KEY] for w in IgnoreWords.WORDS
-        )
-    ):
-        last_category = extra.get(ProductCharacteristics.LAST_CATEGORY_KEY)
-        if last_category:
-            params[ProductCharacteristics.CATEGORY_KEY] = last_category
-        else:
-            cat_from_history = get_category_by_keywords(history_text)
-            if cat_from_history:
-                params[ProductCharacteristics.CATEGORY_KEY] = cat_from_history[0]
-                extra[ProductCharacteristics.LAST_CATEGORY_KEY] = cat_from_history[0]
-
-    if ProductCharacteristics.CATEGORY_KEY in params and not any(
-        w in params[ProductCharacteristics.CATEGORY_KEY] for w in IgnoreWords.WORDS
-    ):
-        category_obj = category_repo.get_by_name(
-            params[ProductCharacteristics.CATEGORY_KEY]
-        )
-        if category_obj:
-            extra[ProductCharacteristics.LAST_CATEGORY_KEY] = category_obj.name
-            user_repo.update_extra_data(user, extra)
-
-    if not has_characteristics:
-        # Если нет характеристик, просим уточнить параметры
-        category_name = (
-            category_obj.name
-            if category_obj
-            else ProductCharacteristics.DEFAULT_CATEGORY_NAME
-        )
-        clarification_message = ProductCharacteristics.get_clarification_message(
-            category_name
-        )
-        await message.answer(clarification_message)
+        reply = await get_gpt_response(user_message, context)
+        message_repo.save_message(user_id, "assistant", reply)
+        await message.answer(clean_ai_response(reply))
         return
 
-    filters = {"color": [], "brand": [], "spec": [], "price": []}
+    extra[ProductCharacteristics.SEARCH_PARAMS_KEY] = params
 
-    if ProductCharacteristics.COLOR_FILTER_KEY in params and not any(
-        w in params[ProductCharacteristics.COLOR_FILTER_KEY] for w in IgnoreWords.WORDS
-    ):
-        colors = [
-            c.strip()
-            for c in re.split(
-                r"[,/]| или | or ", params[ProductCharacteristics.COLOR_FILTER_KEY]
-            )
-            if c.strip()
-        ]
-        if colors:
-            from database.models import Product
+    if category_name:
+        category_obj = category_repo.get_by_name(category_name)
+    elif last_category:
+        category_obj = category_repo.get_by_name(last_category)
+    else:
+        cat_from_history = get_category_by_keywords(history_text)
+        if cat_from_history:
+            params["категория"] = cat_from_history[0]
+            extra["last_category"] = cat_from_history[0]
+        category_obj = category_repo.get_by_name(cat_from_history[0])
 
-            filters["color"] = [
-                or_(
-                    Product.name.ilike(f"%{color}%"),
-                    Product.description.ilike(f"%{color}%"),
-                )
-                for color in colors
-            ]
+    if category_obj:
+        extra["last_category"] = category_obj.name
+        user_repo.update_extra_data(user, extra)
+        filters = build_search_filters(params)
+    else:
+        # Если категория не определена, просим ИИ уточнить
+        context = f"""{context}\nПользователь не указал конкретную категорию товара. 
+Вежливо уточни, что именно его интересует: телефон, ноутбук, планшет, телевизор, наушники и т.д."""
 
-    if ProductCharacteristics.BRAND_FILTER_KEY in params and not any(
-        w in params[ProductCharacteristics.BRAND_FILTER_KEY] for w in IgnoreWords.WORDS
-    ):
-        brands = []
-        for group, group_brands in BrandGroups.get_all_brands().items():
-            if group in params[ProductCharacteristics.BRAND_FILTER_KEY]:
-                brands.extend(group_brands)
-        for b in re.split(
-            r"[,/]| или | or ", params[ProductCharacteristics.BRAND_FILTER_KEY]
-        ):
-            b = b.strip()
-            if b and b not in brands:
-                brands.append(b.capitalize())
-        if brands:
-            from database.models import Product
+        reply = await get_gpt_response(user_message, context)
+        message_repo.save_message(user_id, "assistant", reply)
+        await message.answer(clean_ai_response(reply))
+        return
 
-            filters["brand"] = [Product.name.ilike(f"%{b}%") for b in brands]
-
-    if ProductCharacteristics.SPECS_FILTER_KEY in params and not any(
-        w in params[ProductCharacteristics.SPECS_FILTER_KEY] for w in IgnoreWords.WORDS
-    ):
-        size_words = ["маленький", "средний", "большой"]
-        for size_word in size_words:
-            if size_word in params[ProductCharacteristics.SPECS_FILTER_KEY]:
-                cat_name = params.get("категория", "")
-                for key, ranges in SizeRanges.get_all_ranges().items():
-                    if key in cat_name.lower():
-                        for sz in ranges[size_word]:
-                            from database.models import Product
-
-                            filters["spec"].append(Product.name.ilike(f"%{sz}%"))
-                break
-        else:
-            from database.models import Product
-
-            filters["spec"].append(
-                Product.description.ilike(
-                    f"%{params[ProductCharacteristics.SPECS_FILTER_KEY]}%"
-                )
-            )
-
-    if ProductCharacteristics.TYPE_FILTER_KEY in params and not any(
-        w in params[ProductCharacteristics.TYPE_FILTER_KEY] for w in IgnoreWords.WORDS
-    ):
-        from database.models import Product
-
-        filters["spec"].append(
-            Product.name.ilike(f"%{params[ProductCharacteristics.TYPE_FILTER_KEY]}%")
-        )
-        filters["spec"].append(
-            Product.description.ilike(
-                f"%{params[ProductCharacteristics.TYPE_FILTER_KEY]}%"
-            )
-        )
-
-    if ProductCharacteristics.PRICE_FILTER_KEY in params and not any(
-        w in params[ProductCharacteristics.PRICE_FILTER_KEY] for w in IgnoreWords.WORDS
-    ):
-        try:
-            price = int(
-                re.sub(r"\D", "", params[ProductCharacteristics.PRICE_FILTER_KEY])
-            )
-            from database.models import Product
-
-            filters["price"] = [Product.price <= price]
-        except Exception:
-            pass
-
-    category_id = category_obj.id if category_obj else None
-    products, dropped_filters = search_service.smart_search(category_id, filters)
+    category_id = category_obj.id
+    products, _ = search_service.smart_search(category_id, filters)
 
     if products:
         products_id = get_products_id(products)
@@ -301,22 +179,13 @@ async def handle_message(message: Message, state: FSMContext):
         )
         await state.set_state(OrderStates.waiting_for_choice)
     else:
-        context = f"{context_manager.get_context()}\n\nИстория общения:\n{history_text}\n\n{ProductCharacteristics.SEARCH_PARAMS_PREFIX} {params}"
+        context = context_manager.get_context_with_addition(
+            f"История общения:\n{history_text}\n\n{ProductCharacteristics.SEARCH_PARAMS_PREFIX} {params}"
+        )
         fallback_reply = await get_gpt_response(user_message, context)
         message_repo.save_message(user_id, "assistant", fallback_reply)
 
-        cleaned_fallback = "\n".join(
-            line
-            for line in fallback_reply.splitlines()
-            if not (
-                line.strip()
-                .lower()
-                .startswith(ProductCharacteristics.SEARCH_PARAMS_PREFIX)
-                or line.strip()
-                .lower()
-                .startswith(ProductCharacteristics.EXTRACTED_PARAMS_PREFIX)
-            )
-        ).strip()
+        cleaned_fallback = clean_ai_response(fallback_reply)
 
         if cleaned_fallback:
             await message.answer(cleaned_fallback)
@@ -520,7 +389,8 @@ async def handle_product_card(message: Message, state: FSMContext):
         await state.clear()
 
     else:
-        context = f"""Ты — консультант магазина "ТехноМаркет". Пользователь задает вопрос о товаре:
+        context = context_manager.get_context_with_addition(
+            f"""Пользователь задает вопрос о товаре:
 
 Товар: {current_product['name']}
 Описание: {current_product['desc']}
@@ -529,6 +399,7 @@ async def handle_product_card(message: Message, state: FSMContext):
 Вопрос пользователя: {user_message}
 
 Отвечай кратко и по делу. Если пользователь спрашивает о характеристиках, которые не указаны в описании, вежливо сообщи, что эта информация временно недоступна и предложи связаться с менеджером для уточнения деталей."""
+        )
 
         reply = await get_gpt_response(user_message, context)
         if not reply or not reply.strip():

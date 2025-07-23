@@ -53,6 +53,7 @@
    - `BOT_TOKEN` — токен Telegram-бота
    - `OPENAI_API_KEY` или `GROQ_API_KEY` — ключ для LLM
    - `DATABASE_URL` — строка подключения к PostgreSQL
+   - `HISTORY_LIMIT` — количество сообщений истории для контекста (по умолчанию: 5)
 3. **Запустите миграции Alembic:**
    ```bash
    alembic upgrade head
