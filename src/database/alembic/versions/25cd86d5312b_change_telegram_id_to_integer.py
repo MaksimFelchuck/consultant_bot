@@ -21,9 +21,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    # Изменяем тип колонки telegram_id с VARCHAR на INTEGER
     op.execute(
-        "ALTER TABLE users ALTER COLUMN telegram_id TYPE INTEGER USING telegram_id::integer"
+        "ALTER TABLE users ALTER COLUMN telegram_id TYPE BIGINT USING telegram_id::bigint"
     )
 
 
