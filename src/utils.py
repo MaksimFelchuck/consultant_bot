@@ -11,9 +11,9 @@ from pathlib import Path
 from aiogram import Router
 from aiogram.types import Message
 
-from database import SessionLocal
-from database.models import Product
-from database.service import get_or_create_user
+from src.database import SessionLocal
+from src.database.models import Product
+from src.repository import user_repo
 
 
 def get_category_by_keywords(user_message):
@@ -69,9 +69,7 @@ def get_products_id(products):
 
 def get_user_and_extra(message):
     """Получает пользователя и дополнительные данные."""
-    session = SessionLocal()
-    user = get_or_create_user(
-        session,
+    user = user_repo.get_or_create(
         message.from_user.id,
         message.from_user.username,
         message.from_user.first_name,
@@ -79,13 +77,12 @@ def get_user_and_extra(message):
     )
     user_id = user.id
     extra = json.loads(user.extra_data) if user.extra_data else {}
-    return session, user, user_id, extra
+    return None, user, user_id, extra
 
 
 def save_user_data(session, user, extra):
     """Сохраняет данные пользователя."""
-    user.extra_data = to_plain_dict(extra)
-    session.commit()
+    user_repo.update_extra_data(user, to_plain_dict(extra))
 
 
 def format_products_list(products):

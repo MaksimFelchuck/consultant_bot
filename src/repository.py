@@ -8,9 +8,8 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from database import SessionLocal
-from database.models import Category, Message, Product, User
-from database.service import get_user_history, save_message
+from src.database import SessionLocal
+from src.database.models import Category, Message, Product, User
 
 
 class BaseRepository:
@@ -99,6 +98,40 @@ class ProductRepository(BaseRepository):
             .all()
         )
 
+    def get_random_products_by_category(
+        self, top_n: int = 10
+    ) -> Dict[str, List[Product]]:
+        """Получает случайные товары по всем категориям (top_n на категорию)."""
+        result = {}
+        categories = self.session.query(Category).all()
+        for category in categories:
+            # Берём больше товаров, чтобы выбрать уникальные по фото
+            products = (
+                self.session.query(Product)
+                .filter(Product.category_id == category.id)
+                .order_by(func.random())
+                .limit(top_n * 3)
+                .all()
+            )
+            unique = {}
+            for p in products:
+                if p.image_url not in unique and len(unique) < top_n:
+                    unique[p.image_url] = p
+            result[category.name] = list(unique.values())
+        return result
+
+    def get_random_products_for_category(
+        self, category_id: int, top_n: int = 10
+    ) -> List[Product]:
+        """Получает случайные товары по одной категории."""
+        return (
+            self.session.query(Product)
+            .filter(Product.category_id == category_id)
+            .order_by(func.random())
+            .limit(top_n)
+            .all()
+        )
+
     def get_by_id(self, product_id: int) -> Optional[Product]:
         """Получает продукт по ID."""
         return self.session.query(Product).filter(Product.id == product_id).first()
@@ -149,13 +182,28 @@ class UserRepository(BaseRepository):
 class MessageRepository(BaseRepository):
     """Репозиторий для работы с сообщениями."""
 
-    def save_message(self, user_id: int, role: str, content: str) -> Message:
+    def save_message(
+        self, user_id: int, role: str, content: str, session_id: str = ""
+    ) -> Message:
         """Сохраняет сообщение."""
-        return save_message(self.session, user_id, role, content)
+        msg = Message(
+            user_id=user_id, role=role, message=content, session_id=session_id
+        )
+        self.session.add(msg)
+        self.session.commit()
+        return msg
 
     def get_user_history(self, user_id: int, limit: int = 5) -> List[Message]:
         """Получает историю сообщений пользователя."""
-        return get_user_history(self.session, user_id, limit=limit)
+        return (
+            self.session.query(Message)
+            .filter(Message.user_id == user_id)
+            .order_by(Message.timestamp.desc())
+            .limit(limit)
+            .all()
+        )[
+            ::-1
+        ]  # вернуть в хронологическом порядке
 
 
 class SearchService:

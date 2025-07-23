@@ -3,7 +3,7 @@ import logging
 import os
 from pathlib import Path
 
-from config import DEFAULT_CONTEXT
+from src.config import DEFAULT_CONTEXT
 
 CONTEXT_FILE = Path(__file__).parent / "context.txt"
 
