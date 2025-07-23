@@ -108,8 +108,10 @@ async def handle_message(message: Message, state: FSMContext):
 
     search_params = None
     for line in reply.splitlines():
-        if line.strip().lower().startswith("параметры поиска:"):
-            search_params = line.strip()[len("Параметры поиска:") :].strip()
+        if line.strip().lower().startswith(ProductCharacteristics.SEARCH_PARAMS_PREFIX):
+            search_params = line.strip()[
+                len(ProductCharacteristics.SEARCH_PARAMS_PREFIX) :
+            ].strip()
             break
 
     params = dict(saved_params) if saved_params else {}
@@ -127,7 +129,9 @@ async def handle_message(message: Message, state: FSMContext):
 
     # Используем класс для управления характеристиками
     characteristics = ProductCharacteristics(params)
-    has_characteristics = characteristics.has_characteristics(IgnoreWords.WORDS)
+    has_characteristics = characteristics.has_characteristics(
+        [ProductCharacteristics.CATEGORY_KEY, *IgnoreWords.WORDS]
+    )
 
     category_obj = None
 
@@ -211,12 +215,12 @@ async def handle_message(message: Message, state: FSMContext):
 
             filters["brand"] = [Product.name.ilike(f"%{b}%") for b in brands]
 
-    if "характеристики" in params and not any(
-        w in params["характеристики"] for w in IgnoreWords.WORDS
+    if ProductCharacteristics.SPECS_FILTER_KEY in params and not any(
+        w in params[ProductCharacteristics.SPECS_FILTER_KEY] for w in IgnoreWords.WORDS
     ):
         size_words = ["маленький", "средний", "большой"]
         for size_word in size_words:
-            if size_word in params["характеристики"]:
+            if size_word in params[ProductCharacteristics.SPECS_FILTER_KEY]:
                 cat_name = params.get("категория", "")
                 for key, ranges in SizeRanges.get_all_ranges().items():
                     if key in cat_name.lower():
@@ -229,7 +233,9 @@ async def handle_message(message: Message, state: FSMContext):
             from database.models import Product
 
             filters["spec"].append(
-                Product.description.ilike(f"%{params['характеристики']}%")
+                Product.description.ilike(
+                    f"%{params[ProductCharacteristics.SPECS_FILTER_KEY]}%"
+                )
             )
 
     if ProductCharacteristics.TYPE_FILTER_KEY in params and not any(
@@ -279,17 +285,13 @@ async def handle_message(message: Message, state: FSMContext):
 
         products_text = format_products_list(products)
 
-        if dropped_filters:
-            dropped_text = f"\n\n⚠️ Не удалось найти товары со всеми параметрами. Игнорированы: {', '.join(dropped_filters)}"
-            products_text += dropped_text
-
         await message.answer(
             products_text
             + "\n\nЕсли товар вас заинтересовал, введите его номер или название для получения подробной информации."
         )
         await state.set_state(OrderStates.waiting_for_choice)
     else:
-        context = f"{context_manager.get_context()}\n\nИстория общения:\n{history_text}\n\nПараметры поиска: {params}"
+        context = f"{context_manager.get_context()}\n\nИстория общения:\n{history_text}\n\n{ProductCharacteristics.SEARCH_PARAMS_PREFIX} {params}"
         fallback_reply = await get_gpt_response(user_message, context)
         message_repo.save_message(user_id, "assistant", fallback_reply)
 
@@ -297,8 +299,12 @@ async def handle_message(message: Message, state: FSMContext):
             line
             for line in fallback_reply.splitlines()
             if not (
-                line.strip().lower().startswith("параметры поиска:")
-                or line.strip().lower().startswith("извлечённые параметры:")
+                line.strip()
+                .lower()
+                .startswith(ProductCharacteristics.SEARCH_PARAMS_PREFIX)
+                or line.strip()
+                .lower()
+                .startswith(ProductCharacteristics.EXTRACTED_PARAMS_PREFIX)
             )
         ).strip()
 

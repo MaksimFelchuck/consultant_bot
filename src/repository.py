@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from database import SessionLocal
 from database.models import Category, Message, Product, User
+from characteristics import ProductCharacteristics
 
 logger = logging.getLogger(__name__)
 
@@ -270,15 +271,29 @@ class SearchService:
         price_only = {"price": filters.get("price", [])}
         products = self.product_repo.search_products(category_id, price_only, limit=3)
         if products:
-            return products, ["цвет", "бренд", "характеристики"]
+            return products, [
+                ProductCharacteristics.COLOR_FILTER_KEY,
+                ProductCharacteristics.BRAND_FILTER_KEY,
+                ProductCharacteristics.SPECS_FILTER_KEY,
+            ]
 
         # Попытка 5: случайные из категории
         if category_id:
             products = self.product_repo.get_random_by_category(category_id, limit=3)
             if products:
-                return products, ["цвет", "бренд", "характеристики", "цена"]
+                return products, [
+                    ProductCharacteristics.COLOR_FILTER_KEY,
+                    ProductCharacteristics.BRAND_FILTER_KEY,
+                    ProductCharacteristics.SPECS_FILTER_KEY,
+                    ProductCharacteristics.PRICE_FILTER_KEY,
+                ]
 
-        return [], ["цвет", "бренд", "характеристики", "цена"]
+        return [], [
+            ProductCharacteristics.COLOR_FILTER_KEY,
+            ProductCharacteristics.BRAND_FILTER_KEY,
+            ProductCharacteristics.SPECS_FILTER_KEY,
+            ProductCharacteristics.PRICE_FILTER_KEY,
+        ]
 
 
 class RepositoryFactory:

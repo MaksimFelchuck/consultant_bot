@@ -1,7 +1,7 @@
 class ProductCharacteristics:
     """Класс для управления характеристиками товаров."""
 
-    # Ключевые параметры для поиска товаров
+    # Ключевые параметры для поиска товаров (исключая категорию)
     KEY_PARAMS = [
         "цена",
         "бюджет",
@@ -44,9 +44,14 @@ class ProductCharacteristics:
     PRICE_FILTER_KEY = "цена"
     BUDGET_FILTER_KEY = "бюджет"
     TYPE_FILTER_KEY = "тип"
+    SPECS_FILTER_KEY = "характеристики"
 
     # Ключевые слова для обработки сообщений
     PHOTO_KEYWORDS = ["фото", "картинка", "photo", "picture", "покажи", "show"]
+
+    # Строки для парсинга параметров
+    SEARCH_PARAMS_PREFIX = "параметры поиска:"
+    EXTRACTED_PARAMS_PREFIX = "извлечённые параметры:"
     SPECS_KEYWORDS = [
         "характеристики",
         "характеристика",
