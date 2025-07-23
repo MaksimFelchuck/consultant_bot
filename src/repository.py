@@ -8,8 +8,8 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from src.database import SessionLocal
-from src.database.models import Category, Message, Product, User
+from database import SessionLocal
+from database.models import Category, Message, Product, User
 
 
 class BaseRepository:

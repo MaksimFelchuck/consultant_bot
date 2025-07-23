@@ -11,9 +11,9 @@ from pathlib import Path
 from aiogram import Router
 from aiogram.types import Message
 
-from src.database import SessionLocal
-from src.database.models import Product
-from src.repository import user_repo
+from database import SessionLocal
+from database.models import Product
+from repository import user_repo
 
 
 def get_category_by_keywords(user_message):

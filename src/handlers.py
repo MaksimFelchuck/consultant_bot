@@ -13,17 +13,17 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import FSInputFile, Message
 from sqlalchemy import or_
 
-from src.constants import BrandGroups, IgnoreWords, Messages, SizeRanges
-from src.context import context_manager
-from src.openai_api import get_gpt_response
-from src.repository import (
+from constants import BrandGroups, IgnoreWords, Messages, SizeRanges
+from context import context_manager
+from openai_api import get_gpt_response
+from repository import (
     category_repo,
     message_repo,
     product_repo,
     search_service,
     user_repo,
 )
-from src.utils import (
+from utils import (
     format_products_list,
     get_category_by_keywords,
     get_products_id,

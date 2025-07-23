@@ -4,8 +4,8 @@ import os
 
 import openai
 
-from src.config import GROQ_API_KEY, OPENAI_API_KEY
-from src.context import context_manager
+from config import GROQ_API_KEY, OPENAI_API_KEY
+from context import context_manager
 
 if OPENAI_API_KEY:
     openai.api_key = OPENAI_API_KEY
