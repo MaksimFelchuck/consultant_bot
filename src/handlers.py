@@ -137,22 +137,24 @@ async def handle_message(message: Message, state: FSMContext):
         "экран",
         "тип",
     ]
+    # Проверяем наличие характеристик (исключая категорию)
     has_characteristics = any(
         k in params and params[k] and params[k] not in IgnoreWords.WORDS
         for k in KEY_PARAMS
     )
 
     if not has_characteristics:
-        cleaned_reply = "\n".join(
-            line
-            for line in reply.splitlines()
-            if not (
-                line.strip().lower().startswith("параметры поиска:")
-                or line.strip().lower().startswith("извлечённые параметры:")
-            )
-        ).strip()
-        if cleaned_reply:
-            await message.answer(cleaned_reply)
+        # Если нет характеристик, просим уточнить параметры
+        clarification_message = (
+            "Для подбора товара мне нужна дополнительная информация. "
+            "Пожалуйста, укажите:\n\n"
+            "• Бюджет (например: до 50000 рублей)\n"
+            "• Бренд (например: Samsung, Apple, Xiaomi)\n"
+            "• Цвет (например: черный, белый)\n"
+            "• Другие важные характеристики\n\n"
+            "Или просто опишите, что именно вы ищете!"
+        )
+        await message.answer(clarification_message)
         return
 
     category_obj = None
